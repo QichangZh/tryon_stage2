@@ -1,0 +1,7 @@
+/weight/
+/data/
+/imgs
+/pcdms_demo.ipynb/weight/
+/data/
+*.pth
+*.ckpt
