@@ -88,8 +88,8 @@ class Stage1_PriorTransformer(ModelMixin, ConfigMixin):
         inner_dim = num_attention_heads * attention_head_dim
         self.additional_embeddings = additional_embeddings
 
-        self.pose_encoder = MLP(in_dim=36, hidden_dim=512, out_dim=1024)
-        self.pose_encoder1 = MLP(in_dim=36, hidden_dim=512, out_dim=1024)
+        # self.pose_encoder = MLP(in_dim=36, hidden_dim=512, out_dim=1024)
+        # self.pose_encoder1 = MLP(in_dim=36, hidden_dim=512, out_dim=1024)
 
         self.time_proj = Timesteps(inner_dim, True, 0)
         self.time_embedding = TimestepEmbedding(inner_dim, inner_dim)
@@ -247,10 +247,10 @@ class Stage1_PriorTransformer(ModelMixin, ConfigMixin):
 
         proj_embeddings = self.embedding_proj(proj_embedding)
 
-        encoder_hidden_states = self.pose_encoder(encoder_hidden_states)
+        # encoder_hidden_states = self.pose_encoder(encoder_hidden_states)
         encoder_hidden_states = self.encoder_hidden_states_proj(encoder_hidden_states)
 
-        encoder_hidden_states1 = self.pose_encoder1(encoder_hidden_states1)
+        # encoder_hidden_states1 = self.pose_encoder1(encoder_hidden_states1)
         encoder_hidden_states1 = self.encoder_hidden_states_proj1(encoder_hidden_states1)
         hidden_states = self.proj_in(hidden_states) # bs,1024  ->  bs, 2048
         prd_embedding = self.prd_embedding.to(hidden_states.dtype).expand(batch_size, -1, -1)

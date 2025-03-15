@@ -33,8 +33,7 @@ parser.add_argument(
     default=None,
     help="Config file of UNet model",
 )
-parser.add_argument("--json_path", type=str, default="./datasets/deepfashing/train_data.json", help="json path", )
-parser.add_argument("--img_path", type=str, default="./datasets/deepfashing/all_data_png/", help="image path", )
+parser.add_argument("--img_path", type=str, default="./data/train", help="image path", )
 parser.add_argument("--image_encoder_path", type=str, default="./OpenCLIP-ViT-H-14",
                     help="Path to pretrained model or model identifier from huggingface.co/models.", )
 parser.add_argument("--img_width", type=int, default=512, help="width", )

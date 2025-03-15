@@ -156,7 +156,7 @@ def main():
 
 
     dataset = PriorImageDataset(
-        json_file= args.json_path,
+        # json_file= args.json_path,
         image_root_path=args.img_path,
         size=(args.img_width, args.img_height),
         s_img_drop_rate=0.1,
@@ -262,12 +262,13 @@ def main():
         for step, batch in enumerate(train_dataloader):
             with torch.no_grad():
                 # condition
-                img_encoder_output = (image_encoder(batch["clip_s_img"].to(accelerator.device, dtype=weight_dtype)).image_embeds).unsqueeze(1)
-
+                clip_cloth_img_encoder_output = (image_encoder(batch["clip_cloth_img"].to(accelerator.device, dtype=weight_dtype)).image_embeds).unsqueeze(1)
+                clip_agnostic_img_encoder_output = (image_encoder(batch["clip_agnostic_img"].to(accelerator.device, dtype=weight_dtype)).image_embeds).unsqueeze(1)
+                clip_image_img_encoder_output = (image_encoder(batch["clip_image_img"].to(accelerator.device, dtype=weight_dtype)).image_embeds).unsqueeze(1)
 
                 # Sample noise that we'll add to the image_embeds
                 image_embeds = (image_encoder(
-                    batch["clip_t_img"].to(accelerator.device, dtype=weight_dtype)).image_embeds).unsqueeze(1)
+                    batch["clip_warp_mask_img"].to(accelerator.device, dtype=weight_dtype)).image_embeds).unsqueeze(1)
                 noise = torch.randn_like(image_embeds)
 
                 # 添加 offset
@@ -289,16 +290,16 @@ def main():
                 target = image_embeds.squeeze(1)
 
             # Predict the noise residual and compute loss
-            pose_cond  = batch["s_pose"].to(accelerator.device, dtype=weight_dtype)
-            pose_cond1  = batch["t_pose"].to(accelerator.device, dtype=weight_dtype)
+            # pose_cond  = batch["s_pose"].to(accelerator.device, dtype=weight_dtype)
+            # pose_cond1  = batch["t_pose"].to(accelerator.device, dtype=weight_dtype)
 
             with accelerator.accumulate(prior_model):
                 model_pred = prior_model(
                     noisy_x,
                     timestep=timesteps,
-                    proj_embedding=img_encoder_output,
-                    encoder_hidden_states=pose_cond,   
-                    encoder_hidden_states1=pose_cond1, 
+                    proj_embedding=clip_cloth_img_encoder_output,
+                    encoder_hidden_states=clip_agnostic_img_encoder_output,   
+                    encoder_hidden_states1=clip_image_img_encoder_output, 
                     attention_mask=None,
                 ).predicted_image_embedding
 

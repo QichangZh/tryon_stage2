@@ -2,11 +2,10 @@ accelerate launch --num_machines 1 --mixed_precision no --dynamo_backend no --gp
   stage1_train_prior_model.py \
   --pretrained_model_name_or_path="kandinsky-community/kandinsky-2-2-prior" \
   --image_encoder_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
-  --img_path="./data/train_lst_256_png" \
-  --json_path="./data/train_data.json" \
+  --img_path="./data/train" \
   --output_dir="output_dir" \
-  --img_height=256  \
-  --img_width=256   \
+  --img_height=512  \
+  --img_width=512   \
   --train_batch_size=1 \
   --gradient_accumulation_steps=1 \
   --max_train_steps=100000 \
@@ -20,3 +19,4 @@ accelerate launch --num_machines 1 --mixed_precision no --dynamo_backend no --gp
   # laion/CLIP-ViT-H-14-laion2B-s32B-b79K
   # laion/CLIP-ViT-H-14-frozen-xlm-roberta-large-laion5B-s13B-b90k
   # openai/clip-vit-large-patch14
+  # --json_path="./data/train_data.json" \
