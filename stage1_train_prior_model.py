@@ -25,42 +25,103 @@ logger = get_logger(__name__)
 check_min_version("0.18.0.dev0")
 
 
-def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, **kwargs):
-    """Utility function for checkpointing model + optimizer dictionaries
-    The main purpose for this is to be able to resume training from that instant again
-    """
+# def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, **kwargs):
+#     """Utility function for checkpointing model + optimizer dictionaries
+#     The main purpose for this is to be able to resume training from that instant again
+#     """
+#     checkpoint_state_dict = {
+#         "epoch": epoch,
+#         "last_global_step": last_global_step,
+#     }
+#     # Add extra kwargs too
+#     checkpoint_state_dict.update(kwargs)
+
+#     success = model.save_checkpoint(checkpoint_folder, ckpt_id, checkpoint_state_dict)
+#     status_msg = f"checkpointing: checkpoint_folder={checkpoint_folder}, ckpt_id={ckpt_id}"
+#     if success:
+#         logging.info(f"Success {status_msg}")
+#     else:
+#         logging.warning(f"Failure {status_msg}")
+#     return
+
+
+
+def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, optimizer=None, lr_scheduler=None, **kwargs):
+    """保存检查点，包括模型权重和训练状态"""
+    os.makedirs(checkpoint_folder, exist_ok=True)
+    save_path = os.path.join(checkpoint_folder, f"checkpoint-{ckpt_id}.pt")
+    
     checkpoint_state_dict = {
         "epoch": epoch,
         "last_global_step": last_global_step,
+        "module": model.state_dict(),  # 保存模型权重
     }
-    # Add extra kwargs too
+    
+    # 保存优化器状态（如果提供）
+    if optimizer is not None:
+        checkpoint_state_dict["optimizer_state"] = optimizer.state_dict()
+    
+    # 保存学习率调度器状态（如果提供）
+    if lr_scheduler is not None:
+        checkpoint_state_dict["lr_scheduler_state"] = lr_scheduler.state_dict()
+        
+    # 添加其他额外参数
     checkpoint_state_dict.update(kwargs)
-
-    success = model.save_checkpoint(checkpoint_folder, ckpt_id, checkpoint_state_dict)
+    
+    # 保存检查点
+    success = torch.save(checkpoint_state_dict, save_path)
+    
     status_msg = f"checkpointing: checkpoint_folder={checkpoint_folder}, ckpt_id={ckpt_id}"
     if success:
         logging.info(f"Success {status_msg}")
     else:
         logging.warning(f"Failure {status_msg}")
+    
     return
 
-
-def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
-    """Utility function for checkpointing model + optimizer dictionaries
-    The main purpose for this is to be able to resume training from that instant again
-    """
-    checkpoint_state_dict= torch.load(load_dir, map_location="cpu")
-
-    epoch = checkpoint_state_dict["epoch"]
-    last_global_step = checkpoint_state_dict["last_global_step"]
-    # TODO optimizer lr, and loss state
-
+def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None, **kwargs):
+    """从检查点加载模型和训练状态"""
+    checkpoint_state_dict = torch.load(load_dir, map_location="cpu")
+    
+    # 加载模型权重
     weight_dict = checkpoint_state_dict["module"]
+    # 保持原有的module前缀处理方式
     new_weight_dict = {f"module.{key}": value for key, value in weight_dict.items()}
     model.load_state_dict(new_weight_dict)
-    del checkpoint_state_dict
-
+    
+    # 加载优化器状态（如果有）
+    if optimizer is not None and "optimizer_state" in checkpoint_state_dict:
+        optimizer.load_state_dict(checkpoint_state_dict["optimizer_state"])
+    
+    # 加载学习率调度器状态（如果有）
+    if lr_scheduler is not None and "lr_scheduler_state" in checkpoint_state_dict:
+        lr_scheduler.load_state_dict(checkpoint_state_dict["lr_scheduler_state"])
+    
+    epoch = checkpoint_state_dict["epoch"]
+    last_global_step = checkpoint_state_dict["last_global_step"]
+    
     return model, epoch, last_global_step
+
+
+
+
+
+# def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
+#     """Utility function for checkpointing model + optimizer dictionaries
+#     The main purpose for this is to be able to resume training from that instant again
+#     """
+#     checkpoint_state_dict= torch.load(load_dir, map_location="cpu")
+
+#     epoch = checkpoint_state_dict["epoch"]
+#     last_global_step = checkpoint_state_dict["last_global_step"]
+    # TODO optimizer lr, and loss state
+
+#     weight_dict = checkpoint_state_dict["module"]
+#     new_weight_dict = {f"module.{key}": value for key, value in weight_dict.items()}
+#     model.load_state_dict(new_weight_dict)
+#     del checkpoint_state_dict
+
+#     return model, epoch, last_global_step
 
 
 def count_model_params(model):
@@ -240,19 +301,22 @@ def main():
         prior_model, last_epoch, last_global_step = load_training_checkpoint(
             prior_model,
             args.resume_from_checkpoint,
-            **{"load_optimizer_states": True, "load_lr_scheduler_states": True},
+            optimizer=optimizer,
+            lr_scheduler=lr_scheduler
         )
         accelerator.print(f"Resumed from checkpoint: {args.resume_from_checkpoint}, global step: {last_global_step}")
         starting_epoch = last_epoch
         global_steps = last_global_step
-        prior_model = prior_model
     else:
         global_steps = 0
         starting_epoch = 0
-        prior_model = prior_model
-    progress_bar = tqdm(range(global_steps, args.max_train_steps), initial=global_steps, desc="Steps",
-                        # Only show the progress bar once on each machine.
-                        disable=not accelerator.is_local_main_process, )
+    progress_bar = tqdm(
+        range(global_steps, args.max_train_steps), 
+        initial=global_steps, 
+        desc="Steps",
+        # Only show the progress bar once on each machine.
+        disable=not accelerator.is_local_main_process
+    )
 
     for epoch in range(starting_epoch, args.num_train_epochs):
         prior_model.train()
@@ -328,7 +392,7 @@ def main():
 
                 if global_steps % args.checkpointing_steps == 0:
                     checkpoint_model(
-                        args.output_dir, global_steps, prior_model, epoch, global_steps
+                        args.output_dir, global_steps, prior_model, epoch, global_steps, optimizer=optimizer, lr_scheduler=lr_scheduler
                     )
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
