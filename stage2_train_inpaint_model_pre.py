@@ -22,7 +22,7 @@ from diffusers import (
 )
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version, is_wandb_available
-from src.dataset.stage2_dataset import InpaintDataset, InpaintCollate_fn
+from src.dataset.stage2_dataset_pre import InpaintDataset, InpaintCollate_fn
 from transformers import CLIPVisionModelWithProjection
 from transformers import Dinov2Model
 from src.models.stage2_inpaint_unet_2d_condition import Stage2_InapintUNet2DConditionModel
@@ -77,21 +77,21 @@ class SDModel(torch.nn.Module):
         self.image_proj_model_p = ImageProjModel_p(in_dim=1536, hidden_dim=768, out_dim=1024)
 
         self.unet = unet
-        # self.pose_proj = ControlNetConditioningEmbedding(
-        #     conditioning_embedding_channels=320,
-        #     block_out_channels=(16, 32, 96, 256),
-        #     conditioning_channels=3)
+        self.pose_proj = ControlNetConditioningEmbedding(
+            conditioning_embedding_channels=320,
+            block_out_channels=(16, 32, 96, 256),
+            conditioning_channels=3)
 
 
-    def forward(self, noisy_latents, timesteps, simg_f_p, timg_f_g):
+    def forward(self, noisy_latents, timesteps, simg_f_p, timg_f_g, pose_f):
 
         extra_image_embeddings_p = self.image_proj_model_p(simg_f_p)
         extra_image_embeddings_g = timg_f_g
 
         encoder_image_hidden_states = torch.cat([extra_image_embeddings_p ,extra_image_embeddings_g], dim=1)
-        # pose_cond = self.pose_proj(pose_f)
+        pose_cond = self.pose_proj(pose_f)
 
-        pred_noise = self.unet(noisy_latents, timesteps, class_labels=timg_f_g, encoder_hidden_states=encoder_image_hidden_states).sample
+        pred_noise = self.unet(noisy_latents, timesteps, class_labels=timg_f_g, encoder_hidden_states=encoder_image_hidden_states,my_pose_cond=pose_cond).sample
         return pred_noise
 
 
@@ -220,6 +220,7 @@ def main():
     )
 
     dataset = InpaintDataset(
+        args.json_path,
         args.image_root_path,
         size=(args.img_width, args.img_height), # w h
         imgp_drop_rate=0.1,
@@ -337,11 +338,11 @@ def main():
                     mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     mask = torch.cat([mask1, mask0], dim=3)
                     # Get the image embedding for conditioning
-                    cond_image_feature_p = image_encoder_p(batch["cloth_image"].to(accelerator.device, dtype=weight_dtype))
+                    cond_image_feature_p = image_encoder_p(batch["source_image"].to(accelerator.device, dtype=weight_dtype))
                     cond_image_feature_p = (cond_image_feature_p.last_hidden_state)
 
 
-                    cond_image_feature_g = image_encoder_g(batch["warp_image"].to(accelerator.device, dtype=weight_dtype), ).image_embeds
+                    cond_image_feature_g = image_encoder_g(batch["target_image"].to(accelerator.device, dtype=weight_dtype), ).image_embeds
                     cond_image_feature_g =cond_image_feature_g.unsqueeze(1)
 
                 # Sample noise that we'll add to the latents
@@ -363,10 +364,10 @@ def main():
                 # Get the text embedding for conditioning
 
 
-                # cond_pose = batch["source_target_pose"].to(dtype=weight_dtype)
+                cond_pose = batch["source_target_pose"].to(dtype=weight_dtype)
 
                 # Predict the noise residual
-                model_pred = sd_model(noisy_latents, timesteps, cond_image_feature_p,cond_image_feature_g, )
+                model_pred = sd_model(noisy_latents, timesteps, cond_image_feature_p,cond_image_feature_g, cond_pose, )
 
                 # Get the target for loss depending on the prediction type
                 if noise_scheduler.config.prediction_type == "epsilon":

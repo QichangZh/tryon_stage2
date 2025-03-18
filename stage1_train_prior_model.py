@@ -80,14 +80,39 @@ def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step,
     return
 
 def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None, **kwargs):
-    """从检查点加载模型和训练状态"""
-    checkpoint_state_dict = torch.load(load_dir, map_location="cpu")
+    """从检查点加载模型和训练状态，自动选择最新的检查点。如果没有检查点，从头开始训练"""
+    # 确保目录存在
+    if not os.path.exists(load_dir):
+        logging.info(f"Checkpoint directory {load_dir} not found, starting from step 0")
+        return model, 0, 0
     
-    # 加载模型权重
-    weight_dict = checkpoint_state_dict["module"]
-    # 保持原有的module前缀处理方式
-    new_weight_dict = {f"module.{key}": value for key, value in weight_dict.items()}
-    model.load_state_dict(new_weight_dict)
+    # 获取所有.pt检查点文件
+    checkpoint_files = [f for f in os.listdir(load_dir) if f.startswith('checkpoint-') and f.endswith('.pt')]
+    
+    # 如果没有检查点文件，从头开始训练
+    if not checkpoint_files:
+        logging.info(f"No checkpoint files found in {load_dir}, starting from step 0")
+        return model, 0, 0
+    
+    # 从文件名提取步数并找到最大的
+    steps = [int(f.split('-')[-1].replace('.pt', '')) for f in checkpoint_files]
+    latest_step = max(steps)
+    latest_checkpoint = os.path.join(load_dir, f"checkpoint-{latest_step}.pt")
+    
+    logging.info(f"Loading checkpoint from step {latest_step}")
+    
+    # 加载检查点
+    checkpoint_state_dict = torch.load(latest_checkpoint, map_location="cpu")
+    
+    # 判断是否有 'module.' 前缀
+    if "module." in next(iter(checkpoint_state_dict["state_dict"].keys())):
+        # 如果有 'module.' 前缀，移除 'module.' 前缀
+        state_dict = {k.replace("module.", ""): v for k, v in checkpoint_state_dict["state_dict"].items()}
+    else:
+        # 如果没有 'module.' 前缀，直接使用
+        state_dict = checkpoint_state_dict["state_dict"]
+    
+    model.load_state_dict(state_dict)
     
     # 加载优化器状态（如果有）
     if optimizer is not None and "optimizer_state" in checkpoint_state_dict:
@@ -318,6 +343,7 @@ def main():
         disable=not accelerator.is_local_main_process
     )
 
+    print(starting_epoch)
     for epoch in range(starting_epoch, args.num_train_epochs):
         prior_model.train()
         train_loss = 0.0
