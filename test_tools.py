@@ -76,7 +76,8 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
             # 添加噪声
             noise = torch.randn_like(latents)
             timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=latents.device)
-            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps).to(dtype=weight_dtype)
+            timesteps = timesteps.long()
+            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps) #.to(dtype=weight_dtype)
 
             # 准备条件输入
             masked_latents = vae.encode(batch["vae_source_mask_image"].to(dtype=weight_dtype)).latent_dist.sample()

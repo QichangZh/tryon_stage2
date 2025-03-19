@@ -8,6 +8,7 @@ from torch import nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
 import transformers
+import accelerate  # 添加这个导入到文件顶部
 from accelerate import Accelerator
 from accelerate.logging import get_logger
 from accelerate.utils import ProjectConfiguration, set_seed
