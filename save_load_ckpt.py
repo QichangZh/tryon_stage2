@@ -73,7 +73,7 @@ def load_training_checkpoint(
         load_dir: 检查点加载目录
         optimizer: 优化器 (可选)
         lr_scheduler: 学习率调度器 (可选)
-        ckpt_id: 指定要加载的检查点ID (可选,默认加载最新的检查点)
+        ckpt_id: 指定要加载的检查点ID (可选, 默认加载最新的检查点)
 
     Returns:
         tuple: (加载后的模型, 当前轮次, 当前全局步数)
@@ -113,28 +113,30 @@ def load_training_checkpoint(
         if state_dict is None:
             raise KeyError("Neither 'state_dict' nor 'module' key found in checkpoint")
 
-        # 自动添加或去除 module. 前缀以匹配模型期望的键名
+        # 自动调整 module. 前缀
         model_keys = model.state_dict().keys()
         model_expects_module = any(key.startswith("module.") for key in model_keys)
         ckpt_has_module = any(key.startswith("module.") for key in state_dict.keys())
         if model_expects_module and not ckpt_has_module:
-            # 模型期望带 module. 前缀，但检查点中没有，则添加
             state_dict = {"module." + k: v for k, v in state_dict.items()}
         elif not model_expects_module and ckpt_has_module:
-            # 模型不期望带 module. 前缀，但检查点中有，则去除
             state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
 
         model.load_state_dict(state_dict)
 
         # 加载优化器状态（如果有）
         if optimizer is not None and "optimizer_state" in checkpoint_state_dict:
-            optimizer.load_state_dict(checkpoint_state_dict["optimizer_state"])
+            optimizer_state = checkpoint_state_dict["optimizer_state"]
+            # 如果 optimizer_state 不是按 DeepSpeed 要求的格式，则包装成字典，添加 key 0
+            if isinstance(optimizer_state, dict) and 0 not in optimizer_state:
+                optimizer_state = {0: optimizer_state}
+            optimizer.load_state_dict(optimizer_state)
             logging.info("Optimizer state loaded successfully.")
 
         # 加载学习率调度器状态（如果有）
         if lr_scheduler is not None and "lr_scheduler_state" in checkpoint_state_dict:
             lr_scheduler.load_state_dict(checkpoint_state_dict["lr_scheduler_state"])
-            logging.info("Optimizer state loaded successfully.")
+            logging.info("LR scheduler state loaded successfully.")
 
         epoch = checkpoint_state_dict.get("epoch", 0)
         last_global_step = checkpoint_state_dict.get("last_global_step", 0)
