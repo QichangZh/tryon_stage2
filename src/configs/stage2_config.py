@@ -43,8 +43,7 @@ parser.add_argument("--image_encoder_g_path", type=str, default="./OpenCLIP-ViT-
                     help="Path to pretrained model or model identifier from huggingface.co/models.", )
 parser.add_argument("--image_encoder_p_path", type=str, default="./dinov2-giant",
                     help="Path to pretrained model or model identifier from huggingface.co/models.", )
-parser.add_argument("--output_dir",type=str,default="./logs/stage2",help="The 
-                    put directory where the model predictions and checkpoints will be written.",)
+parser.add_argument("--output_dir",type=str,default="./logs/stage2",help="The output directory where the model predictions and checkpoints will be written.",)
 parser.add_argument("--img_width", type=int, default=512, help="device number", )
 parser.add_argument("--img_height", type=int, default=512, help="device number", )
 parser.add_argument(
@@ -181,7 +180,20 @@ parser.add_argument(
     ),
 )
 
+# 添加验证集相关参数
+parser.add_argument(
+    "--val_image_root_path",
+    type=str,
+    default="/home/y/yuansui/tryon_stage1/data/VTON/test",
+    help="Validation image path",
+)
 
+parser.add_argument(
+    "--val_batch_size",
+    type=int,
+    default=128,  # 通常验证时batch_size可以大一点
+    help="Batch size (per device) for the validation dataloader.",
+)
 
 parser.add_argument("--noise_offset", type=float, default=0, help="The scale of noise offset.")
 

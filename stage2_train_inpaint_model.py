@@ -14,7 +14,8 @@ from accelerate.utils import ProjectConfiguration, set_seed
 
 from tqdm.auto import tqdm
 from src.configs.stage2_config import args
-
+from test_tools import validate_and_evaluate
+from datetime import datetime
 import diffusers
 from diffusers import (
     AutoencoderKL,
@@ -97,7 +98,7 @@ class SDModel(torch.nn.Module):
 
 
 
-def checkpoint_model(model, checkpoint_folder, ckpt_id, epoch, last_global_step, optimizer=None, lr_scheduler=None):
+def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, optimizer=None, lr_scheduler=None,  **kwargs):
     """保存模型检查点，包含模型权重、优化器状态、学习率调节器状态等"""
     os.makedirs(checkpoint_folder, exist_ok=True)
     save_path = os.path.join(checkpoint_folder, f"checkpoint-{ckpt_id}")
@@ -131,7 +132,9 @@ def checkpoint_model(model, checkpoint_folder, ckpt_id, epoch, last_global_step,
     logging.info(f"Success checkpointing: checkpoint_folder={checkpoint_folder}, ckpt_id={ckpt_id}")
     return
 
-def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None):
+
+
+def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None, **kwargs):
     """加载模型检查点"""
     if not os.path.exists(load_dir):
         logging.info(f"检查点目录 {load_dir} 不存在，从步骤 0 开始")
@@ -166,7 +169,7 @@ def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None)
             from safetensors.torch import load_file
             checkpoint = load_file(latest_checkpoint)
         else:
-            checkpoint = torch.load(latest_checkpoint, map_location='cpu')
+            checkpoint = torch.load(latest_checkpoint, map_location='cpu'， weights_only=False)
         
         # 加载模型权重
         model.load_state_dict(checkpoint["module"])
@@ -313,6 +316,34 @@ def main():
         power=args.lr_power,
     )
 
+    # 创建验证数据集
+    val_dataset = InpaintDataset(
+        args.val_image_root_path,  # 需要在args中添加验证集路径参数
+        size=(args.img_width, args.img_height),
+        imgp_drop_rate=0.0,  # 验证时不需要dropout
+        imgg_drop_rate=0.0
+    )
+
+    # 验证集sampler
+    val_sampler = torch.utils.data.distributed.DistributedSampler(
+        val_dataset, 
+        num_replicas=accelerator.num_processes,
+        rank=accelerator.process_index,
+        shuffle=False  # 验证时不需要shuffle
+    )
+
+    # 创建验证数据加载器
+    val_dataloader = torch.utils.data.DataLoader(
+        val_dataset,
+        sampler=val_sampler,
+        collate_fn=InpaintCollate_fn,
+        batch_size=args.val_batch_size,  # 需要在args中添加验证batch size参数
+        num_workers=2,
+    )
+
+    # 准备验证dataloader
+    val_dataloader = accelerator.prepare(val_dataloader)
+
     # Prepare everything with our `accelerator`.
     sd_model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(sd_model, optimizer, train_dataloader, lr_scheduler)
 
@@ -458,6 +489,49 @@ def main():
                     checkpoint_model(
                         args.output_dir, global_steps, sd_model, epoch, global_steps, optimizer=optimizer,lr_scheduler=lr_scheduler
                     )
+
+                if global_steps % 50 == 0:  # 每50步验证一次
+                    # 确保只在主进程进行验证和记录
+                    if accelerator.is_main_process:
+                        logger.info(f"Starting validation at step {global_steps}...")
+                        val_loss, metrics = validate_and_evaluate(
+                            sd_model, 
+                            val_dataloader, 
+                            vae,
+                            accelerator, 
+                            global_steps,
+                            weight_dtype,
+                            image_encoder_p,
+                            image_encoder_g
+                        )
+                        logs.update({
+                            "val_loss": val_loss,
+                            "LPIPS": metrics["lpips"],
+                            "SSIM": metrics["ssim"],
+                            "FID": metrics["fid"],
+                            "KID": metrics["kid"]
+                        })
+                        logger.info(f"Step {global_steps}: Validation Loss: {val_loss}")
+
+                        # 在这里添加保存metrics的代码
+                        metrics_log_dir = os.path.join(args.output_dir, 'metrics_log')
+                        os.makedirs(metrics_log_dir, exist_ok=True)
+                        
+                        txt_path = os.path.join(metrics_log_dir, 'evaluation_metrics.txt')
+                        
+                        with open(txt_path, 'a') as f:
+                            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+                                    f"step-{global_steps} "
+                                    f"lpips-{metrics['lpips']:.6f} "
+                                    f"ssim-{metrics['ssim']:.6f} "
+                                    f"fid-{metrics['fid']:.6f} "
+                                    f"kid-{metrics['kid']:.6f}\n")
+
+                        logger.info(f"Metrics saved to {txt_path}")
+                    
+                    # 等待所有进程完成验证
+                    accelerator.wait_for_everyone()
+
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
