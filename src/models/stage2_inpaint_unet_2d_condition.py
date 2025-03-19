@@ -680,7 +680,7 @@ class Stage2_InapintUNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditio
         # but time_embedding might actually be running in fp16. so we need to cast here.
         # there might be better ways to encapsulate this.
         t_emb = t_emb.to(dtype=sample.dtype)  # [bs, 320]
-
+        timestep_cond = timestep_cond.to(dtype=sample.dtype)
         emb = self.time_embedding(t_emb, timestep_cond)  # [bs,1280]
 
 
