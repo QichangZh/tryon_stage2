@@ -263,7 +263,7 @@ def main():
     unet.to(accelerator.device, dtype=weight_dtype)
     image_encoder_p.to(accelerator.device, dtype=weight_dtype)
     image_encoder_g.to(accelerator.device, dtype=weight_dtype)
-    sd_model = sd_model.to(dtype=weight_dtype)
+    # sd_model = sd_model.to(dtype=weight_dtype)
 
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
