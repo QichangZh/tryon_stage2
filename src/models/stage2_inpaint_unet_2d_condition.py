@@ -739,7 +739,7 @@ class Stage2_InapintUNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditio
             encoder_hidden_states = self.encoder_hid_proj(encoder_hidden_states, image_embeds)
 
         # 2. pre-process
-        sample = self.conv_in(sample)
+        sample = self.conv_in(sample.to(torch.float32))
 
 
 
