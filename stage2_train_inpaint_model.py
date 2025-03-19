@@ -97,75 +97,104 @@ class SDModel(torch.nn.Module):
 
 
 
-def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, optimizer=None, lr_scheduler=None, **kwargs):
-    """保存检查点，包括模型权重和训练状态"""
+def checkpoint_model(model, checkpoint_folder, ckpt_id, epoch, last_global_step, optimizer=None, lr_scheduler=None):
+    """保存模型检查点，包含模型权重、优化器状态、学习率调节器状态等"""
     os.makedirs(checkpoint_folder, exist_ok=True)
-    save_path = os.path.join(checkpoint_folder, f"checkpoint-{ckpt_id}.pt")
+    save_path = os.path.join(checkpoint_folder, f"checkpoint-{ckpt_id}")
     
-    checkpoint_state_dict = {
+    # 准备保存的状态
+    state_dict = {
+        "module": model.state_dict(),  # 模型权重
         "epoch": epoch,
         "last_global_step": last_global_step,
-        "module": model.state_dict(),  # 保存模型权重
     }
     
-    # 保存优化器状态（如果提供）
+    # 如果有优化器，保存其状态
     if optimizer is not None:
-        checkpoint_state_dict["optimizer_state"] = optimizer.state_dict()
+        state_dict["optimizer_state"] = optimizer.state_dict()
     
-    # 保存学习率调度器状态（如果提供）
+    # 如果有学习率调节器，保存其状态
     if lr_scheduler is not None:
-        checkpoint_state_dict["lr_scheduler_state"] = lr_scheduler.state_dict()
-        
-    # 添加其他额外参数
-    checkpoint_state_dict.update(kwargs)
+        state_dict["lr_scheduler_state"] = lr_scheduler.state_dict()
     
-    # 保存检查点
-    torch.save(checkpoint_state_dict, save_path)
+    # 使用 safetensors 保存（如果模型支持）
+    try:
+        model.save_pretrained(
+            save_path,
+            safe_serialization=True,
+            state_dict=state_dict
+        )
+    except Exception as e:
+        # 如果 safetensors 保存失败，使用 PyTorch 方式保存
+        torch.save(state_dict, f"{save_path}.pt")
     
-    status_msg = f"checkpointing: checkpoint_folder={checkpoint_folder}, ckpt_id={ckpt_id}"
-    logging.info(f"Success {status_msg}")
+    logging.info(f"Success checkpointing: checkpoint_folder={checkpoint_folder}, ckpt_id={ckpt_id}")
     return
 
-def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None, **kwargs):
-    """从检查点加载模型和训练状态，自动选择最新的检查点。如果没有检查点，从头开始训练"""
-    # 确保目录存在
+def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None):
+    """加载模型检查点"""
     if not os.path.exists(load_dir):
-        logging.info(f"Checkpoint directory {load_dir} not found, starting from step 0")
+        logging.info(f"检查点目录 {load_dir} 不存在，从步骤 0 开始")
         return model, 0, 0
     
-    # 获取所有.pt检查点文件
-    checkpoint_files = [f for f in os.listdir(load_dir) if f.startswith('checkpoint-') and f.endswith('.pt')]
+    # 优先选择 safetensors 格式
+    safetensors_files = [f for f in os.listdir(load_dir) if f.startswith('checkpoint-') and f.endswith('.safetensors')]
+    if safetensors_files:
+        checkpoint_files = safetensors_files
+        use_safetensors = True
+    else:
+        # 如果没有 safetensors 文件，使用 pt 格式
+        pt_files = [f for f in os.listdir(load_dir) if f.startswith('checkpoint-') and f.endswith('.pt')]
+        checkpoint_files = pt_files
+        use_safetensors = False
     
-    # 如果没有检查点文件，从头开始训练
     if not checkpoint_files:
-        logging.info(f"No checkpoint files found in {load_dir}, starting from step 0")
+        logging.info(f"在 {load_dir} 中未找到检查点，从步骤 0 开始")
         return model, 0, 0
     
-    # 从文件名提取步数并找到最新的
-    steps = [int(f.split('-')[-1].replace('.pt', '')) for f in checkpoint_files]
+    # 提取步数时考虑不同格式的后缀
+    steps = [int(f.split('-')[1].replace('.safetensors', '').replace('.pt', '')) for f in checkpoint_files]
     latest_step = max(steps)
-    latest_checkpoint = os.path.join(load_dir, f"checkpoint-{latest_step}.pt")
+    latest_file = [f for f in checkpoint_files if str(latest_step) in f][0]
+    latest_checkpoint = os.path.join(load_dir, latest_file)
     
-    logging.info(f"Loading checkpoint from step {latest_step}")
+    logging.info(f"从步骤 {latest_step} 加载检查点")
     
-    # 加载检查点
-    checkpoint_state_dict = torch.load(latest_checkpoint, map_location="cpu")
-    
-    # 加载模型权重
-    model.load_state_dict(checkpoint_state_dict["module"])
-    
-    # 加载优化器状态（如果有）
-    if optimizer is not None and "optimizer_state" in checkpoint_state_dict:
-        optimizer.load_state_dict(checkpoint_state_dict["optimizer_state"])
-    
-    # 加载学习率调度器状态（如果有）
-    if lr_scheduler is not None and "lr_scheduler_state" in checkpoint_state_dict:
-        lr_scheduler.load_state_dict(checkpoint_state_dict["lr_scheduler_state"])
-    
-    epoch = checkpoint_state_dict["epoch"]
-    last_global_step = checkpoint_state_dict["last_global_step"]
-    
-    return model, epoch, last_global_step
+    try:
+        # 根据格式选择加载方式
+        if use_safetensors:
+            from safetensors.torch import load_file
+            checkpoint = load_file(latest_checkpoint)
+        else:
+            checkpoint = torch.load(latest_checkpoint, map_location='cpu')
+        
+        # 加载模型权重
+        model.load_state_dict(checkpoint["module"])
+        
+        # 加载优化器状态（如果有）
+        if optimizer is not None and "optimizer_state" in checkpoint:
+            try:
+                optimizer.load_state_dict(checkpoint["optimizer_state"])
+                logging.info("Successfully loaded optimizer state")
+            except Exception as e:
+                logging.warning(f"Failed to load optimizer state: {e}")
+        
+        # 加载学习率调节器状态（如果有）
+        if lr_scheduler is not None and "lr_scheduler_state" in checkpoint:
+            try:
+                lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state"])
+                logging.info("Successfully loaded lr_scheduler state")
+            except Exception as e:
+                logging.warning(f"Failed to load lr_scheduler state: {e}")
+        
+        epoch = checkpoint["epoch"]
+        last_global_step = checkpoint["last_global_step"]
+        
+        return model, epoch, last_global_step
+        
+    except Exception as e:
+        logging.error(f"Error loading checkpoint: {e}")
+        raise e
 
 
 

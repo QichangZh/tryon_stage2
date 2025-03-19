@@ -8,6 +8,7 @@ accelerate launch --gpu_ids 0 --num_processes 1 --use_deepspeed --mixed_precisio
   --img_width=512   \
   --learning_rate=1e-4 \
   --train_batch_size=1 \
+  --resume_from_checkpoint="logs/stage2" \
   --max_train_steps=1000000 \
   --mixed_precision="bf16" \
   --checkpointing_steps=50  \

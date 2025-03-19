@@ -43,7 +43,8 @@ parser.add_argument("--image_encoder_g_path", type=str, default="./OpenCLIP-ViT-
                     help="Path to pretrained model or model identifier from huggingface.co/models.", )
 parser.add_argument("--image_encoder_p_path", type=str, default="./dinov2-giant",
                     help="Path to pretrained model or model identifier from huggingface.co/models.", )
-parser.add_argument("--output_dir",type=str,default="./logs/stage2",help="The output directory where the model predictions and checkpoints will be written.",)
+parser.add_argument("--output_dir",type=str,default="./logs/stage2",help="The 
+                    put directory where the model predictions and checkpoints will be written.",)
 parser.add_argument("--img_width", type=int, default=512, help="device number", )
 parser.add_argument("--img_height", type=int, default=512, help="device number", )
 parser.add_argument(
