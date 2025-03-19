@@ -398,7 +398,6 @@ def main():
                     # 确保只在主进程进行验证和记录
                     if accelerator.is_main_process:
                         logger.info(f"Starting validation at step {global_steps}...")
-                        torch.cuda.empty_cache()
                         val_loss, metrics = validate_and_evaluate(
                             sd_model, 
                             val_dataloader, 
