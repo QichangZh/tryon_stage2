@@ -67,14 +67,14 @@ def load_training_checkpoint(
     **kwargs: Any
 ) -> tuple[nn.Module, int, int]:
     """从检查点加载模型和训练状态
-    
+
     Args:
         model: PyTorch模型
         load_dir: 检查点加载目录
         optimizer: 优化器 (可选)
         lr_scheduler: 学习率调度器 (可选)
         ckpt_id: 指定要加载的检查点ID (可选,默认加载最新的检查点)
-        
+
     Returns:
         tuple: (加载后的模型, 当前轮次, 当前全局步数)
     """
@@ -82,15 +82,15 @@ def load_training_checkpoint(
     if not os.path.exists(load_dir):
         logging.info(f"Checkpoint directory {load_dir} not found, starting from step 0")
         return model, 0, 0
-    
+
     # 获取所有.pt检查点文件
     checkpoint_files = [f for f in os.listdir(load_dir) if f.startswith('checkpoint-') and f.endswith('.pt')]
-    
+
     # 如果没有检查点文件，从头开始训练
     if not checkpoint_files:
         logging.info(f"No checkpoint files found in {load_dir}, starting from step 0")
         return model, 0, 0
-    
+
     try:
         if ckpt_id is not None:
             # 加载指定ID的检查点
@@ -102,36 +102,45 @@ def load_training_checkpoint(
             steps = [int(f.split('-')[-1].replace('.pt', '')) for f in checkpoint_files]
             latest_step = max(steps)
             checkpoint_path = os.path.join(load_dir, f"checkpoint-{latest_step}.pt")
-        
+
         logging.info(f"Loading checkpoint from {checkpoint_path}")
-        
+
         # 加载检查点
-        checkpoint_state_dict = torch.load(checkpoint_path, map_location="cpu")
-        
+        checkpoint_state_dict = torch.load(checkpoint_path, map_location="cpu", weights_only=False)
+
         # 处理模型权重
         state_dict = checkpoint_state_dict.get("state_dict") or checkpoint_state_dict.get("module")
         if state_dict is None:
             raise KeyError("Neither 'state_dict' nor 'module' key found in checkpoint")
-            
-        # 处理DataParallel保存的模型权重
-        if any(key.startswith("module.") for key in state_dict):
-            state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
-            
+
+        # 自动添加或去除 module. 前缀以匹配模型期望的键名
+        model_keys = model.state_dict().keys()
+        model_expects_module = any(key.startswith("module.") for key in model_keys)
+        ckpt_has_module = any(key.startswith("module.") for key in state_dict.keys())
+        if model_expects_module and not ckpt_has_module:
+            # 模型期望带 module. 前缀，但检查点中没有，则添加
+            state_dict = {"module." + k: v for k, v in state_dict.items()}
+        elif not model_expects_module and ckpt_has_module:
+            # 模型不期望带 module. 前缀，但检查点中有，则去除
+            state_dict = {k.replace("module.", "", 1): v for k, v in state_dict.items()}
+
         model.load_state_dict(state_dict)
-        
+
         # 加载优化器状态（如果有）
         if optimizer is not None and "optimizer_state" in checkpoint_state_dict:
             optimizer.load_state_dict(checkpoint_state_dict["optimizer_state"])
-        
+            logging.info("Optimizer state loaded successfully.")
+
         # 加载学习率调度器状态（如果有）
         if lr_scheduler is not None and "lr_scheduler_state" in checkpoint_state_dict:
             lr_scheduler.load_state_dict(checkpoint_state_dict["lr_scheduler_state"])
-        
+            logging.info("Optimizer state loaded successfully.")
+
         epoch = checkpoint_state_dict.get("epoch", 0)
         last_global_step = checkpoint_state_dict.get("last_global_step", 0)
-        
+
         return model, epoch, last_global_step
-        
+
     except Exception as e:
         logging.error(f"Failed to load checkpoint: {str(e)}")
         raise

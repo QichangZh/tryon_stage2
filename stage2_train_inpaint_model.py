@@ -301,6 +301,7 @@ def main():
             args.resume_from_checkpoint,
             optimizer=optimizer,
             lr_scheduler=lr_scheduler,
+            ckpt_id=None,
         )
         accelerator.print(f"Resumed from checkpoint: {args.resume_from_checkpoint}, global step: {last_global_step}")
         starting_epoch = last_epoch
