@@ -27,7 +27,7 @@ from src.dataset.stage2_dataset import InpaintDataset, InpaintCollate_fn
 from transformers import CLIPVisionModelWithProjection
 from transformers import Dinov2Model
 from src.models.stage2_inpaint_unet_2d_condition import Stage2_InapintUNet2DConditionModel
-
+from save_load_ckpt import load_training_checkpoint, checkpoint_model
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.18.0.dev0")

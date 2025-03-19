@@ -679,7 +679,7 @@ class Stage2_InapintUNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditio
         # `Timesteps` does not contain any weights and will always return f32 tensors
         # but time_embedding might actually be running in fp16. so we need to cast here.
         # there might be better ways to encapsulate this.
-        t_emb = t_emb.to(dtype=sample.dtype)  # [bs, 320]
+        t_emb = t_emb.to(dtype=torch.bfloat16)  # [bs, 320]
 
         emb = self.time_embedding(t_emb, timestep_cond)  # [bs,1280]
 
