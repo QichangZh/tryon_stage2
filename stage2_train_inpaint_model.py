@@ -360,14 +360,13 @@ def main():
 
 
                 # cond_pose = batch["source_target_pose"].to(dtype=weight_dtype)
-
-                print("------------------------------dtype sd model--------------------------------------")
-                print("noisy_latents: " + noisy_latents.dtype)
-                print("timesteps: " + timesteps.dtype)
-                print("cond_image_feature_p: " + cond_image_feature_p.dtype)
-                print("cond_image_feature_g: " + cond_image_feature_g.dtype)
-                print("sd_model: " + sd_model.dtype)
-                print("----------------------------------------------------------------------------------")
+            print("------------------------------dtype sd model--------------------------------------")
+            print("noisy_latents: ", noisy_latents.dtype)
+            print("timesteps: ", timesteps.dtype)
+            print("cond_image_feature_p: ", cond_image_feature_p.dtype)
+            print("cond_image_feature_g: ", cond_image_feature_g.dtype)
+            print("sd_model: ", sd_model.dtype)
+            print("----------------------------------------------------------------------------------")
 
                 # Predict the noise residual
                 model_pred = sd_model(noisy_latents, timesteps, cond_image_feature_p,cond_image_feature_g, )
