@@ -94,6 +94,14 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
             # 准备条件特征
             cond_image_feature_p = image_encoder_p(batch["cloth_image"].to(dtype=weight_dtype)).last_hidden_state
             cond_image_feature_g = image_encoder_g(batch["warp_image"].to(dtype=weight_dtype)).image_embeds.unsqueeze(1)
+
+            print("------------------------------dtype sd model--------------------------------------")
+            print("noisy_latents: " + noisy_latents.dtype)
+            print("timesteps: " + timesteps.dtype)
+            print("cond_image_feature_p: " + cond_image_feature_p.dtype)
+            print("cond_image_feature_g: " + cond_image_feature_g.dtype)
+            print("sd_model: " + sd_model.dtype)
+            print("----------------------------------------------------------------------------------")
             
             # 生成预测
             model_pred = sd_model(noisy_latents, timesteps, cond_image_feature_p, cond_image_feature_g)
