@@ -578,7 +578,7 @@ class Stage2_InapintUNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditio
 
     def forward(
         self,
-        sample: torch.FloatTensor,
+        sample: torch.Tensor,
         timestep: Union[torch.Tensor, float, int],
         encoder_hidden_states: torch.Tensor,
         class_labels: Optional[torch.Tensor] = None,
