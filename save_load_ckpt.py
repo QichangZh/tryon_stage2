@@ -1,147 +1,137 @@
 import os
 import logging
+from typing import Optional, Dict, Any
 import torch
-import accelerate  # 添加这个导入到文件顶部
+from torch import nn
+from torch.optim import Optimizer
+from torch.optim.lr_scheduler import _LRScheduler
 
 
-
-
-def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, optimizer=None, lr_scheduler=None,  **kwargs):
-    """保存模型检查点，包含模型权重、优化器状态、学习率调节器状态等"""
-    os.makedirs(checkpoint_folder, exist_ok=True)
-    save_path = os.path.join(checkpoint_folder, f"checkpoint-{ckpt_id}")
+def checkpoint_model(
+    checkpoint_folder: str,
+    ckpt_id: int,
+    model: nn.Module,
+    epoch: int,
+    last_global_step: int,
+    optimizer: Optional[Optimizer] = None,
+    lr_scheduler: Optional[_LRScheduler] = None,
+    **kwargs: Any
+) -> None:
+    """保存检查点，包括模型权重和训练状态
     
-    # 准备保存的状态
-    state_dict = {
-        "module": model.state_dict(),  # 模型权重
+    Args:
+        checkpoint_folder: 检查点保存目录
+        ckpt_id: 检查点ID
+        model: PyTorch模型
+        epoch: 当前训练轮次
+        last_global_step: 当前全局训练步数
+        optimizer: 优化器 (可选)
+        lr_scheduler: 学习率调度器 (可选) 
+        **kwargs: 其他需要保存的参数
+    """
+    os.makedirs(checkpoint_folder, exist_ok=True)
+    save_path = os.path.join(checkpoint_folder, f"checkpoint-{ckpt_id}.pt")
+    
+    checkpoint_state_dict = {
         "epoch": epoch,
         "last_global_step": last_global_step,
+        "state_dict": model.state_dict(),  # 保存模型权重
     }
     
-    # 如果有优化器，保存其状态
+    # 保存优化器状态（如果提供）
     if optimizer is not None:
-        logging.info(f"Saving optimizer state, optimizer type: {type(optimizer)}")
-        try:
-            if isinstance(optimizer, accelerate.utils.deepspeed.DeepSpeedOptimizerWrapper):
-                # 获取完整的 DeepSpeed 状态
-                ds_state = optimizer.optimizer.state_dict()
-                state_dict["optimizer_state"] = {
-                    "ds_state": ds_state,  # DeepSpeed 完整状态
-                    "base_state": optimizer.optimizer.base_optimizer_state  # 基础优化器状态
-                }
-            else:
-                state_dict["optimizer_state"] = optimizer.state_dict()
-            
-            logging.info(f"Optimizer state keys: {state_dict['optimizer_state'].keys()}")
-        except Exception as e:
-            logging.error(f"Failed to save optimizer state: {e}")
+        checkpoint_state_dict["optimizer_state"] = optimizer.state_dict()
     
-    
-    # 如果有学习率调节器，保存其状态
+    # 保存学习率调度器状态（如果提供）
     if lr_scheduler is not None:
-        state_dict["lr_scheduler_state"] = lr_scheduler.state_dict()
-    
-    # 使用 safetensors 保存（如果模型支持）
-    try:
-        model.save_pretrained(
-            save_path,
-            safe_serialization=True,
-            state_dict=state_dict
-        )
-    except Exception as e:
-        # 如果 safetensors 保存失败，使用 PyTorch 方式保存
-        torch.save(state_dict, f"{save_path}.pt")
-    
-    logging.info(f"Success checkpointing: checkpoint_folder={checkpoint_folder}, ckpt_id={ckpt_id}")
-    return
-
-
-
-def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None, **kwargs):
-    """加载模型检查点"""
-    if not os.path.exists(load_dir):
-        logging.info(f"检查点目录 {load_dir} 不存在，从步骤 0 开始")
-        return model, 0, 0
-    
-    # 优先选择 safetensors 格式
-    safetensors_files = [f for f in os.listdir(load_dir) if f.startswith('checkpoint-') and f.endswith('.safetensors')]
-    if safetensors_files:
-        checkpoint_files = safetensors_files
-        use_safetensors = True
-    else:
-        # 如果没有 safetensors 文件，使用 pt 格式
-        pt_files = [f for f in os.listdir(load_dir) if f.startswith('checkpoint-') and f.endswith('.pt')]
-        checkpoint_files = pt_files
-        use_safetensors = False
-    
-    if not checkpoint_files:
-        logging.info(f"在 {load_dir} 中未找到检查点，从步骤 0 开始")
-        return model, 0, 0
-    
-    # 提取步数时考虑不同格式的后缀
-    steps = [int(f.split('-')[1].replace('.safetensors', '').replace('.pt', '')) for f in checkpoint_files]
-    latest_step = max(steps)
-    latest_file = [f for f in checkpoint_files if str(latest_step) in f][0]
-    latest_checkpoint = os.path.join(load_dir, latest_file)
-    
-    logging.info(f"从步骤 {latest_step} 加载检查点")
-    
-    try:
-        # 根据格式选择加载方式
-        if use_safetensors:
-            from safetensors.torch import load_file
-            checkpoint = load_file(latest_checkpoint)
-        else:
-            checkpoint = torch.load(latest_checkpoint, map_location='cpu', weights_only=False)
+        checkpoint_state_dict["lr_scheduler_state"] = lr_scheduler.state_dict()
         
-        # 加载模型权重
-        model.load_state_dict(checkpoint["module"])
+    # 添加其他额外参数
+    checkpoint_state_dict.update(kwargs)
+    
+    # 保存检查点
+    try:
+        torch.save(checkpoint_state_dict, save_path)
+        logging.info(f"Successfully saved checkpoint to {save_path}")
+    except Exception as e:
+        logging.error(f"Failed to save checkpoint to {save_path}: {str(e)}")
+        raise
+
+
+def load_training_checkpoint(
+    model: nn.Module,
+    load_dir: str,
+    optimizer: Optional[Optimizer] = None,
+    lr_scheduler: Optional[_LRScheduler] = None,
+    ckpt_id: Optional[int] = None,
+    **kwargs: Any
+) -> tuple[nn.Module, int, int]:
+    """从检查点加载模型和训练状态
+    
+    Args:
+        model: PyTorch模型
+        load_dir: 检查点加载目录
+        optimizer: 优化器 (可选)
+        lr_scheduler: 学习率调度器 (可选)
+        ckpt_id: 指定要加载的检查点ID (可选,默认加载最新的检查点)
+        
+    Returns:
+        tuple: (加载后的模型, 当前轮次, 当前全局步数)
+    """
+    # 确保目录存在
+    if not os.path.exists(load_dir):
+        logging.info(f"Checkpoint directory {load_dir} not found, starting from step 0")
+        return model, 0, 0
+    
+    # 获取所有.pt检查点文件
+    checkpoint_files = [f for f in os.listdir(load_dir) if f.startswith('checkpoint-') and f.endswith('.pt')]
+    
+    # 如果没有检查点文件，从头开始训练
+    if not checkpoint_files:
+        logging.info(f"No checkpoint files found in {load_dir}, starting from step 0")
+        return model, 0, 0
+    
+    try:
+        if ckpt_id is not None:
+            # 加载指定ID的检查点
+            checkpoint_path = os.path.join(load_dir, f"checkpoint-{ckpt_id}.pt")
+            if not os.path.exists(checkpoint_path):
+                raise FileNotFoundError(f"Checkpoint file {checkpoint_path} not found")
+        else:
+            # 加载最新的检查点
+            steps = [int(f.split('-')[-1].replace('.pt', '')) for f in checkpoint_files]
+            latest_step = max(steps)
+            checkpoint_path = os.path.join(load_dir, f"checkpoint-{latest_step}.pt")
+        
+        logging.info(f"Loading checkpoint from {checkpoint_path}")
+        
+        # 加载检查点
+        checkpoint_state_dict = torch.load(checkpoint_path, map_location="cpu")
+        
+        # 处理模型权重
+        state_dict = checkpoint_state_dict.get("state_dict") or checkpoint_state_dict.get("module")
+        if state_dict is None:
+            raise KeyError("Neither 'state_dict' nor 'module' key found in checkpoint")
+            
+        # 处理DataParallel保存的模型权重
+        if any(key.startswith("module.") for key in state_dict):
+            state_dict = {k.replace("module.", ""): v for k, v in state_dict.items()}
+            
+        model.load_state_dict(state_dict)
         
         # 加载优化器状态（如果有）
-        if optimizer is not None and "optimizer_state" in checkpoint:
-            logging.info(f"Current optimizer type: {type(optimizer)}")
-            
-            try:
-                # 检查是否是 DeepSpeed 优化器
-                if isinstance(optimizer, accelerate.utils.deepspeed.DeepSpeedOptimizerWrapper):
-                    logging.info("Detected DeepSpeed optimizer")
-                    checkpoint_state = checkpoint["optimizer_state"]
-                    
-                    if "ds_state" in checkpoint_state:
-                        # 加载完整的 DeepSpeed 状态
-                        try:
-                            optimizer.optimizer.load_state_dict(checkpoint_state["ds_state"])
-                            logging.info("Successfully loaded complete DeepSpeed state")
-                            return model, epoch, last_global_step
-                        except Exception as e:
-                            logging.error(f"Failed to load complete DeepSpeed state: {str(e)}")
-                    
-                    if "base_state" in checkpoint_state:
-                        # 尝试只加载基础优化器状态
-                        try:
-                            optimizer.optimizer.base_optimizer.load_state_dict(checkpoint_state["base_state"])
-                            logging.info("Successfully loaded base optimizer state")
-                            return model, epoch, last_global_step
-                        except Exception as e:
-                            logging.error(f"Failed to load base optimizer state: {str(e)}")
-            
-                    logging.warning("Could not load any optimizer state, reinitializing")
-            except Exception as e:
-                logging.error(f"Error processing optimizer: {e}")
+        if optimizer is not None and "optimizer_state" in checkpoint_state_dict:
+            optimizer.load_state_dict(checkpoint_state_dict["optimizer_state"])
         
-        # 加载学习率调节器状态（如果有）
-        if lr_scheduler is not None and "lr_scheduler_state" in checkpoint:
-            try:
-                lr_scheduler.load_state_dict(checkpoint["lr_scheduler_state"])
-                logging.info("Successfully loaded lr_scheduler state")
-            except Exception as e:
-                logging.warning(f"Failed to load lr_scheduler state: {e}")
+        # 加载学习率调度器状态（如果有）
+        if lr_scheduler is not None and "lr_scheduler_state" in checkpoint_state_dict:
+            lr_scheduler.load_state_dict(checkpoint_state_dict["lr_scheduler_state"])
         
-        epoch = checkpoint["epoch"]
-        last_global_step = checkpoint["last_global_step"]
+        epoch = checkpoint_state_dict.get("epoch", 0)
+        last_global_step = checkpoint_state_dict.get("last_global_step", 0)
         
         return model, epoch, last_global_step
         
     except Exception as e:
-        logging.error(f"Error loading checkpoint: {e}")
-        raise e
+        logging.error(f"Failed to load checkpoint: {str(e)}")
+        raise
