@@ -115,11 +115,20 @@ def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step,
     if optimizer is not None:
         logging.info(f"Saving optimizer state, optimizer type: {type(optimizer)}")
         try:
-            optimizer_state = optimizer.state_dict()
-            state_dict["optimizer_state"] = optimizer_state
-            logging.info(f"Optimizer state keys: {optimizer_state.keys()}")
+            if isinstance(optimizer, accelerate.utils.deepspeed.DeepSpeedOptimizerWrapper):
+                # 获取完整的 DeepSpeed 状态
+                ds_state = optimizer.optimizer.state_dict()
+                state_dict["optimizer_state"] = {
+                    "ds_state": ds_state,  # DeepSpeed 完整状态
+                    "base_state": optimizer.optimizer.base_optimizer_state  # 基础优化器状态
+                }
+            else:
+                state_dict["optimizer_state"] = optimizer.state_dict()
+            
+            logging.info(f"Optimizer state keys: {state_dict['optimizer_state'].keys()}")
         except Exception as e:
             logging.error(f"Failed to save optimizer state: {e}")
+    
     
     # 如果有学习率调节器，保存其状态
     if lr_scheduler is not None:
@@ -189,38 +198,29 @@ def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None,
                 # 检查是否是 DeepSpeed 优化器
                 if isinstance(optimizer, accelerate.utils.deepspeed.DeepSpeedOptimizerWrapper):
                     logging.info("Detected DeepSpeed optimizer")
-                    # 获取基础优化器
-                    base_optimizer = optimizer.optimizer
-                    logging.info(f"Base optimizer type: {type(base_optimizer)}")
-                    
-                    # 打印详细的状态信息
                     checkpoint_state = checkpoint["optimizer_state"]
-                    logging.info(f"Checkpoint optimizer state structure: {checkpoint_state.keys()}")
-                    logging.info(f"Current optimizer state structure: {optimizer.state_dict().keys()}")
                     
-                    # 尝试加载状态
-                    try:
-                        optimizer.load_state_dict(checkpoint_state)
-                        logging.info("Successfully loaded DeepSpeed optimizer state")
-                    except Exception as e:
-                        logging.error(f"Failed to load DeepSpeed optimizer state: {str(e)}")
-                        logging.error("Will try to load base optimizer state")
-                        
-                        # 尝试加载基础优化器状态
-                        if "base_optimizer_state" in checkpoint_state:
-                            base_optimizer.load_state_dict(checkpoint_state["base_optimizer_state"])
+                    if "ds_state" in checkpoint_state:
+                        # 加载完整的 DeepSpeed 状态
+                        try:
+                            optimizer.optimizer.load_state_dict(checkpoint_state["ds_state"])
+                            logging.info("Successfully loaded complete DeepSpeed state")
+                            return model, epoch, last_global_step
+                        except Exception as e:
+                            logging.error(f"Failed to load complete DeepSpeed state: {str(e)}")
+                    
+                    if "base_state" in checkpoint_state:
+                        # 尝试只加载基础优化器状态
+                        try:
+                            optimizer.optimizer.base_optimizer.load_state_dict(checkpoint_state["base_state"])
                             logging.info("Successfully loaded base optimizer state")
-                else:
-                    # 非 DeepSpeed 优化器的常规加载
-                    optimizer.load_state_dict(checkpoint["optimizer_state"])
-                    logging.info("Successfully loaded regular optimizer state")
-                    
+                            return model, epoch, last_global_step
+                        except Exception as e:
+                            logging.error(f"Failed to load base optimizer state: {str(e)}")
+            
+                    logging.warning("Could not load any optimizer state, reinitializing")
             except Exception as e:
-                logging.error(f"Failed to load optimizer state: {str(e)}")
-                logging.error("Optimizer states may be incompatible")
-                logging.warning("Continuing with reinitialized optimizer")
-        else:
-            logging.info("No optimizer state found in checkpoint or no optimizer provided")
+                logging.error(f"Error processing optimizer: {e}")
         
         # 加载学习率调节器状态（如果有）
         if lr_scheduler is not None and "lr_scheduler_state" in checkpoint:
@@ -293,6 +293,12 @@ def main():
     vae.requires_grad_(False)
 
     sd_model = SDModel(unet=unet)
+
+    sd_model = sd_model.to(dtype=weight_dtype)
+    vae = vae.to(dtype=weight_dtype)
+    image_encoder_p = image_encoder_p.to(dtype=weight_dtype)
+    image_encoder_g = image_encoder_g.to(dtype=weight_dtype)
+    
     sd_model.train()
 
 
