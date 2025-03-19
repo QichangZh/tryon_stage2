@@ -112,7 +112,13 @@ def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step,
     
     # 如果有优化器，保存其状态
     if optimizer is not None:
-        state_dict["optimizer_state"] = optimizer.state_dict()
+        logging.info(f"Saving optimizer state, optimizer type: {type(optimizer)}")
+        try:
+            optimizer_state = optimizer.state_dict()
+            state_dict["optimizer_state"] = optimizer_state
+            logging.info(f"Optimizer state keys: {optimizer_state.keys()}")
+        except Exception as e:
+            logging.error(f"Failed to save optimizer state: {e}")
     
     # 如果有学习率调节器，保存其状态
     if lr_scheduler is not None:
@@ -169,18 +175,26 @@ def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None,
             from safetensors.torch import load_file
             checkpoint = load_file(latest_checkpoint)
         else:
-            checkpoint = torch.load(latest_checkpoint, map_location='cpu'， weights_only=False)
+            checkpoint = torch.load(latest_checkpoint, map_location='cpu', weights_only=False)
         
         # 加载模型权重
         model.load_state_dict(checkpoint["module"])
         
         # 加载优化器状态（如果有）
         if optimizer is not None and "optimizer_state" in checkpoint:
+            logging.info(f"Current optimizer type: {type(optimizer)}")
+            logging.info(f"Current optimizer state keys: {optimizer.state_dict().keys()}")
+            logging.info(f"Checkpoint optimizer state keys: {checkpoint['optimizer_state'].keys()}")
+            
             try:
                 optimizer.load_state_dict(checkpoint["optimizer_state"])
                 logging.info("Successfully loaded optimizer state")
             except Exception as e:
-                logging.warning(f"Failed to load optimizer state: {e}")
+                logging.error(f"Failed to load optimizer state: {str(e)}")
+                logging.error("Optimizer states may be incompatible")
+                logging.warning("Continuing with reinitialized optimizer")
+        else:
+            logging.info("No optimizer state found in checkpoint or no optimizer provided")
         
         # 加载学习率调节器状态（如果有）
         if lr_scheduler is not None and "lr_scheduler_state" in checkpoint:
@@ -355,6 +369,9 @@ def main():
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
+    print("----------------------weight_dtype--------------------------")
+    print(weight_dtype)
+
     # Move vae, unet and text_encoder to device and cast to weight_dtype
     vae.to(accelerator.device, dtype=weight_dtype)
     unet.to(accelerator.device, dtype=weight_dtype)
@@ -494,6 +511,7 @@ def main():
                     # 确保只在主进程进行验证和记录
                     if accelerator.is_main_process:
                         logger.info(f"Starting validation at step {global_steps}...")
+                        torch.cuda.empty_cache()
                         val_loss, metrics = validate_and_evaluate(
                             sd_model, 
                             val_dataloader, 
