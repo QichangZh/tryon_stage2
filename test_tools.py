@@ -19,7 +19,7 @@ def compute_metrics(generated_images, real_images):
     loss_fn_alex = lpips.LPIPS(net='alex').to(generated_images.device)
     
     # 转换图像格式
-    generated_np = generated_images.cpu().numpy().transpose(0, 2, 3, 1)
+    generated_np = generated_images.cpu().float().numpy().transpose(0, 2, 3, 1)
     real_np = real_images.cpu().numpy().transpose(0, 2, 3, 1)
     
     # 计算LPIPS
@@ -117,8 +117,14 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
             
             # 解码生成的图像
             generated_images = vae.decode(latents).sample
-            all_generated_images.append(generated_images)
-            all_real_images.append(batch["source_target_image"])
+            generated_images = generated_images.cpu()
+            real_images = batch["source_target_image"].cpu()
+            
+            all_generated_images = torch.cat(all_generated_images)
+            all_real_images = torch.cat(real_images)
+            
+            # 主动清理一下
+            torch.cuda.empty_cache()
     
     # 计算平均验证损失
     avg_val_loss = total_val_loss / len(val_dataloader)

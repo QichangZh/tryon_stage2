@@ -255,9 +255,6 @@ def main():
     elif accelerator.mixed_precision == "bf16":
         weight_dtype = torch.bfloat16
 
-    print("----------------------weight_dtype--------------------------")
-    print(weight_dtype)
-
     # Move vae, unet and text_encoder to device and cast to weight_dtype
     vae.to(accelerator.device, dtype=weight_dtype)
     unet.to(accelerator.device, dtype=weight_dtype)
@@ -296,7 +293,7 @@ def main():
     if args.resume_from_checkpoint:
         # New Code #
         # Loads the DeepSpeed checkpoint from the specified path
-        sd_model, last_epoch, last_global_step = load_training_checkpoint(
+        sd_model, last_epoch, last_global_step = load_training_checkpoint( #如何查看是几个进程
             sd_model,
             args.resume_from_checkpoint,
             optimizer=optimizer,
@@ -406,6 +403,7 @@ def main():
                     # 确保只在主进程进行验证和记录
                     if accelerator.is_main_process:
                         logger.info(f"Starting validation at step {global_steps}...")
+                        torch.cuda.empty_cache()
                         val_loss, metrics = validate_and_evaluate(
                             sd_model, 
                             val_dataloader, 
