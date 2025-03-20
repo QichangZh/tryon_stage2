@@ -1,23 +1,8 @@
-# 在文件开头添加必要的import
-import lpips
-from skimage.metrics import structural_similarity as ssim
-from src.configs.stage2_config import args
-import numpy as np
-from cleanfid import fid
-import torch_fidelity
-from torchvision.utils import save_image
-import torchvision.transforms as transforms
-import torch
-import torch.nn.functional as F
-from diffusers import DDPMScheduler
-import os
-import shutil
-
 def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_step, weight_dtype, image_encoder_p, image_encoder_g):
     """验证函数：分批计算LPIPS/SSIM并保存生成的图像，用于后续FID/KID的计算，避免一次性OOM"""
     sd_model.eval()
     total_val_loss = 0.0
-    
+  
     # 创建用于保存临时图像的目录
     temp_gen_dir = "temp_generated"
     temp_real_dir = "temp_real"
@@ -32,7 +17,7 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
     ssim_accum = 0.0
     count_samples = 0
 
-    # 获取noise scheduler (应从训练代码传入)
+    # 获取noise scheduler
     noise_scheduler = DDPMScheduler.from_pretrained(
         args.pretrained_model_name_or_path, subfolder="scheduler"
     )
@@ -66,7 +51,7 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
             mask0 = torch.zeros_like(mask1)
             mask = torch.cat([mask1, mask0], dim=3)
 
-            # 组合输入 (噪声 + mask + masked_latents)
+            # 组合输入
             noisy_latents = torch.cat([noisy_latents, mask, masked_latents], dim=1).to(dtype=weight_dtype)
 
             # ===================== 2) 准备条件特征 =====================
@@ -79,20 +64,24 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
                 target = noise
             else:
                 target = noise_scheduler.get_velocity(latents, noise, timesteps)
-            
+          
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
             total_val_loss += loss.item()
 
             # ===================== 4) 解码生成 & 分批计算LPIPS/SSIM =====================
-            # 此处如果需要更复杂的生成过程(如多步采样)，需自行添加；这里只是直接decode原始latents
-            generated_images = vae.decode(latents).sample  # [B, 3, H, W]
+            generated_images = vae.decode(latents).sample
 
-            # LPIPS：需保证图像在 -1~1 或 0~1 区间，自行检查
-            lpips_batch = lpips_model(generated_images, real_images).mean().item()
+            # 确保数据类型正确 - 先转换为float32
+            generated_images = generated_images.to(dtype=torch.float32)
+            real_images_float = real_images.to(dtype=torch.float32)
 
-            # SSIM (在CPU/NumPy上计算)
+            # LPIPS计算
+            lpips_batch = lpips_model(generated_images, real_images_float).mean().item()
+
+            # SSIM计算 - 转换为numpy时已经是float32
             gen_np = generated_images.detach().cpu().numpy().transpose(0,2,3,1)
-            real_np = real_images.detach().cpu().numpy().transpose(0,2,3,1)
+            real_np = real_images_float.detach().cpu().numpy().transpose(0,2,3,1)
+          
             ssim_batch = 0.0
             for i in range(gen_np.shape[0]):
                 ssim_batch += ssim(gen_np[i], real_np[i], multichannel=True)
@@ -107,7 +96,7 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
             for i in range(batch_size):
                 idx_global = batch_idx * val_dataloader.batch_size + i
                 save_image(generated_images[i], f"{temp_gen_dir}/{idx_global}.png")
-                save_image(real_images[i], f"{temp_real_dir}/{idx_global}.png")
+                save_image(real_images_float[i], f"{temp_real_dir}/{idx_global}.png")
 
             # 清理显存
             torch.cuda.empty_cache()
