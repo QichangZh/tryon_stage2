@@ -12,7 +12,7 @@ import torch.nn.functional as F
 from diffusers import DDPMScheduler
 import os
 import shutil
-def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_step, weight_dtype, image_encoder_p, image_encoder_g):
+def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_step, weight_dtype, image_encoder_p, image_encoder_g, args):
     """验证函数：分批计算LPIPS/SSIM并保存生成的图像，用于后续FID/KID的计算，避免一次性OOM"""
     sd_model.eval()
     total_val_loss = 0.0
@@ -127,7 +127,7 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
 
             # ===================== 5) 保存图像用于FID/KID =====================
             for i in range(batch_size):
-                idx_global = batch_idx * val_dataloader.batch_size + i
+                idx_global = batch_idx * args.val_batch_size + i
                 save_image(generated_images[i], f"{temp_gen_dir}/{idx_global}.png")
                 save_image(real_images_float[i], f"{temp_real_dir}/{idx_global}.png")
 

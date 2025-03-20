@@ -240,12 +240,18 @@ def main():
         batch_size=args.val_batch_size,  # 需要在args中添加验证batch size参数
         num_workers=2,
     )
-
-    # 准备验证dataloader
-    val_dataloader = accelerator.prepare(val_dataloader)
+    # print("----------------------------------------------------val_dataloader.batch_size-------------------------------------------")
+    # print(val_dataloader.batch_size)
+    # # 准备验证dataloader
+    # val_dataloader = accelerator.prepare(val_dataloader)
+    # print("----------------------------------------------------val_dataloader.batch_size-------------------------------------------")
+    # print(val_dataloader.batch_size)
 
     # Prepare everything with our `accelerator`.
     sd_model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(sd_model, optimizer, train_dataloader, lr_scheduler)
+
+    # print("----------------------------------------------------val_dataloader.batch_size-------------------------------------------")
+    # print(val_dataloader.batch_size)
 
     # For mixed precision training we cast the text_encoder and vae weights to half-precision
     # as these models are only used for inference, keeping weights in full precision is not required.
@@ -412,7 +418,8 @@ def main():
                             global_steps,
                             weight_dtype,
                             image_encoder_p,
-                            image_encoder_g
+                            image_encoder_g,
+                            args
                         )
                         logs.update({
                             "val_loss": val_loss,
