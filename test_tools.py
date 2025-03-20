@@ -11,102 +11,70 @@ import torch
 import torch.nn.functional as F
 from diffusers import DDPMScheduler
 import os
+import shutil
 
-# 添加验证和评估函数
-def compute_metrics(generated_images, real_images):
-    """计算各种评估指标"""
-    # 初始化LPIPS模型
-    loss_fn_alex = lpips.LPIPS(net='alex').to(generated_images.device)
+def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_step, weight_dtype, image_encoder_p, image_encoder_g):
+    """验证函数：分批计算LPIPS/SSIM并保存生成的图像，用于后续FID/KID的计算，避免一次性OOM"""
+    sd_model.eval()
+    total_val_loss = 0.0
     
-    # 转换图像格式
-    generated_np = generated_images.cpu().float().numpy().transpose(0, 2, 3, 1)
-    real_np = real_images.cpu().numpy().transpose(0, 2, 3, 1)
-    
-    # 计算LPIPS
-    lpips_value = loss_fn_alex(generated_images, real_images).mean().item()
-    
-    # 计算SSIM
-    ssim_value = np.mean([ssim(generated_np[i], real_np[i], multichannel=True) 
-                         for i in range(len(generated_np))])
-    
-    # 保存临时图像用于计算FID和KID
+    # 创建用于保存临时图像的目录
     temp_gen_dir = "temp_generated"
     temp_real_dir = "temp_real"
     os.makedirs(temp_gen_dir, exist_ok=True)
     os.makedirs(temp_real_dir, exist_ok=True)
-    
-    for i in range(len(generated_images)):
-        save_image(generated_images[i], f"{temp_gen_dir}/{i}.png")
-        save_image(real_images[i], f"{temp_real_dir}/{i}.png")
-    
-    # 计算FID
-    fid_value = fid.compute_fid(temp_gen_dir, temp_real_dir)
-    
-    # 计算KID
-    metrics = torch_fidelity.calculate_metrics(
-        input1=temp_gen_dir,
-        input2=temp_real_dir,
-        metrics=['kid'],
-    )
-    kid_value = metrics['kid']
-    
-    # 清理临时文件
-    import shutil
-    shutil.rmtree(temp_gen_dir)
-    shutil.rmtree(temp_real_dir)
-    
-    return lpips_value, ssim_value, fid_value, kid_value
 
-def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_step, weight_dtype, image_encoder_p, image_encoder_g):
-    """验证函数"""
-    sd_model.eval()
-    total_val_loss = 0
-    all_generated_images = []
-    all_real_images = []
-    
+    # 初始化 LPIPS
+    lpips_model = lpips.LPIPS(net='alex').cuda()
+
+    # 用于累加 LPIPS 和 SSIM
+    lpips_accum = 0.0
+    ssim_accum = 0.0
+    count_samples = 0
+
     # 获取noise scheduler (应从训练代码传入)
-    noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
-    
+    noise_scheduler = DDPMScheduler.from_pretrained(
+        args.pretrained_model_name_or_path, subfolder="scheduler"
+    )
+
     with torch.no_grad():
-        for batch in val_dataloader:
-            # 验证过程与训练过程保持一致
-            latents = vae.encode(batch["source_target_image"].to(dtype=weight_dtype)).latent_dist.sample()
+        for batch_idx, batch in enumerate(val_dataloader):
+            # ===================== 1) 编码并加噪 =====================
+            real_images = batch["source_target_image"].to(dtype=weight_dtype)
+            latents = vae.encode(real_images).latent_dist.sample()
             latents = latents * vae.config.scaling_factor
 
-            # 添加噪声
             noise = torch.randn_like(latents)
-            timesteps = torch.randint(0, noise_scheduler.config.num_train_timesteps, (latents.shape[0],), device=latents.device)
-            timesteps = timesteps.long()
-            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps) #.to(dtype=weight_dtype)
+            timesteps = torch.randint(
+                0, noise_scheduler.config.num_train_timesteps, 
+                (latents.shape[0],), 
+                device=latents.device
+            ).long()
+            noisy_latents = noise_scheduler.add_noise(latents, noise, timesteps)
 
-            # 准备条件输入
-            masked_latents = vae.encode(batch["vae_source_mask_image"].to(dtype=weight_dtype)).latent_dist.sample()
+            # 准备 masked_latents
+            masked_latents = vae.encode(
+                batch["vae_source_mask_image"].to(dtype=weight_dtype)
+            ).latent_dist.sample()
             masked_latents = masked_latents * vae.config.scaling_factor
 
-            # 准备mask
-            mask1 = torch.ones((batch["source_target_image"].shape[0], 1, int(args.img_height/8), int(args.img_width/8))).to(latents.device)
+            # 准备 mask
+            mask1 = torch.ones(
+                (real_images.shape[0], 1, int(args.img_height/8), int(args.img_width/8)),
+                device=latents.device
+            )
             mask0 = torch.zeros_like(mask1)
             mask = torch.cat([mask1, mask0], dim=3)
 
-            # 组合输入
+            # 组合输入 (噪声 + mask + masked_latents)
             noisy_latents = torch.cat([noisy_latents, mask, masked_latents], dim=1).to(dtype=weight_dtype)
 
-            # 准备条件特征
+            # ===================== 2) 准备条件特征 =====================
             cond_image_feature_p = image_encoder_p(batch["cloth_image"].to(dtype=weight_dtype)).last_hidden_state
             cond_image_feature_g = image_encoder_g(batch["warp_image"].to(dtype=weight_dtype)).image_embeds.unsqueeze(1)
 
-            # print("------------------------------dtype sd model--------------------------------------")
-            # print("noisy_latents: ", noisy_latents.dtype)
-            # print("timesteps: ", timesteps.dtype)
-            # print("cond_image_feature_p: ", cond_image_feature_p.dtype)
-            # print("cond_image_feature_g: ", cond_image_feature_g.dtype)
-            # #print("sd_model: ", sd_model.dtype)
-            # print("----------------------------------------------------------------------------------")
-            
-            # 生成预测
+            # ===================== 3) 预测 & 计算Loss =====================
             model_pred = sd_model(noisy_latents, timesteps, cond_image_feature_p, cond_image_feature_g)
-            
-            # 计算损失
             if noise_scheduler.config.prediction_type == "epsilon":
                 target = noise
             else:
@@ -114,29 +82,56 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
             
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
             total_val_loss += loss.item()
-            
-            # 解码生成的图像
-            generated_images = vae.decode(latents).sample
-            generated_images = generated_images.cpu()
-            real_images = batch["source_target_image"].cpu()
-            
-            all_generated_images = torch.cat(all_generated_images)
-            all_real_images = torch.cat(real_images)
-            
-            # 主动清理一下
+
+            # ===================== 4) 解码生成 & 分批计算LPIPS/SSIM =====================
+            # 此处如果需要更复杂的生成过程(如多步采样)，需自行添加；这里只是直接decode原始latents
+            generated_images = vae.decode(latents).sample  # [B, 3, H, W]
+
+            # LPIPS：需保证图像在 -1~1 或 0~1 区间，自行检查
+            lpips_batch = lpips_model(generated_images, real_images).mean().item()
+
+            # SSIM (在CPU/NumPy上计算)
+            gen_np = generated_images.detach().cpu().numpy().transpose(0,2,3,1)
+            real_np = real_images.detach().cpu().numpy().transpose(0,2,3,1)
+            ssim_batch = 0.0
+            for i in range(gen_np.shape[0]):
+                ssim_batch += ssim(gen_np[i], real_np[i], multichannel=True)
+            ssim_batch /= gen_np.shape[0]
+
+            batch_size = real_images.size(0)
+            lpips_accum += lpips_batch * batch_size
+            ssim_accum += ssim_batch * batch_size
+            count_samples += batch_size
+
+            # ===================== 5) 保存图像用于FID/KID =====================
+            for i in range(batch_size):
+                idx_global = batch_idx * val_dataloader.batch_size + i
+                save_image(generated_images[i], f"{temp_gen_dir}/{idx_global}.png")
+                save_image(real_images[i], f"{temp_real_dir}/{idx_global}.png")
+
+            # 清理显存
             torch.cuda.empty_cache()
-    
-    # 计算平均验证损失
+
+    # ===================== 整个验证集循环结束 =====================
     avg_val_loss = total_val_loss / len(val_dataloader)
-    
-    # 计算评估指标
-    all_generated_images = torch.cat(all_generated_images, dim=0)
-    all_real_images = torch.cat(all_real_images, dim=0)
-    
-    lpips_value, ssim_value, fid_value, kid_value = compute_metrics(
-        all_generated_images, all_real_images
+    lpips_value = lpips_accum / count_samples
+    ssim_value = ssim_accum / count_samples
+
+    # 计算 FID
+    fid_value = fid.compute_fid(temp_gen_dir, temp_real_dir)
+
+    # 计算 KID
+    metrics_kid = torch_fidelity.calculate_metrics(
+        input1=temp_gen_dir,
+        input2=temp_real_dir,
+        metrics=['kid'],
     )
-    
+    kid_value = metrics_kid['kid']
+
+    # 清理临时文件夹
+    shutil.rmtree(temp_gen_dir)
+    shutil.rmtree(temp_real_dir)
+
     # 使用accelerator记录指标
     if accelerator.is_main_process:
         accelerator.log({
@@ -153,6 +148,6 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
         "fid": fid_value,
         "kid": kid_value
     }
-    
+
     sd_model.train()
     return avg_val_loss, metrics
