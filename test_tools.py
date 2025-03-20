@@ -1,8 +1,22 @@
+# 在文件开头添加必要的import
+import lpips
+from skimage.metrics import structural_similarity as ssim
+from src.configs.stage2_config import args
+import numpy as np
+from cleanfid import fid
+import torch_fidelity
+from torchvision.utils import save_image
+import torchvision.transforms as transforms
+import torch
+import torch.nn.functional as F
+from diffusers import DDPMScheduler
+import os
+import shutil
 def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_step, weight_dtype, image_encoder_p, image_encoder_g):
     """验证函数：分批计算LPIPS/SSIM并保存生成的图像，用于后续FID/KID的计算，避免一次性OOM"""
     sd_model.eval()
     total_val_loss = 0.0
-  
+    
     # 创建用于保存临时图像的目录
     temp_gen_dir = "temp_generated"
     temp_real_dir = "temp_real"
@@ -64,7 +78,7 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
                 target = noise
             else:
                 target = noise_scheduler.get_velocity(latents, noise, timesteps)
-          
+            
             loss = F.mse_loss(model_pred.float(), target.float(), reduction="mean")
             total_val_loss += loss.item()
 
@@ -78,13 +92,32 @@ def validate_and_evaluate(sd_model, val_dataloader, vae, accelerator, global_ste
             # LPIPS计算
             lpips_batch = lpips_model(generated_images, real_images_float).mean().item()
 
-            # SSIM计算 - 转换为numpy时已经是float32
+            # SSIM计算
             gen_np = generated_images.detach().cpu().numpy().transpose(0,2,3,1)
             real_np = real_images_float.detach().cpu().numpy().transpose(0,2,3,1)
-          
+            
             ssim_batch = 0.0
             for i in range(gen_np.shape[0]):
-                ssim_batch += ssim(gen_np[i], real_np[i], multichannel=True)
+                # 确保图像在0-1范围内
+                gen_img = np.clip(gen_np[i], 0, 1)
+                real_img = np.clip(real_np[i], 0, 1)
+                
+                # 设置较小的window_size，并明确指定channel_axis
+                min_side = min(gen_img.shape[0], gen_img.shape[1])
+                win_size = min(3, min_side) # 使用3或更小的window size
+                if win_size % 2 == 0:  # 确保win_size是奇数
+                    win_size -= 1
+                
+                if win_size >= 3:  # 只在window size至少为3时计算SSIM
+                    ssim_val = ssim(gen_img, real_img, 
+                                  win_size=win_size,
+                                  channel_axis=2,  # 指定颜色通道轴
+                                  data_range=1.0)  # 指定数据范围为0-1
+                    ssim_batch += ssim_val
+                else:
+                    print(f"Warning: Image too small for SSIM calculation. Shape: {gen_img.shape}")
+                    ssim_batch += 0  # 或者其他替代值
+
             ssim_batch /= gen_np.shape[0]
 
             batch_size = real_images.size(0)
