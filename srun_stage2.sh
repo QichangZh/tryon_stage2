@@ -4,12 +4,12 @@
 #SBATCH --ntasks-per-node=2                # 每个节点启动 2 个任务（与GPU数量匹配）
 #SBATCH --cpus-per-task=30                 # 每个任务使用 30 个 CPU 核心
 #SBATCH --mem=400G                         # 每个节点分配 400GB 内存
-#SBATCH --gres=gpu:h100-96:2               # 每个节点分配 2 块 GPU
+#SBATCH --gres=gpu:a100-40:2               # 每个节点分配 2 块 GPU
 #SBATCH --time=4-01:00:00                  # 最长运行时间
 #SBATCH --partition=gpu-long
 #SBATCH --mail-type=END,FAIL               # 何时给用户发邮件
 #SBATCH --mail-user=qiczhang@163.com       # 接收邮件的地址
-#SBATCH --nodelist=xgpi5,xgpi7           # 指定节点 (根据实际情况修改)
+#SBATCH --nodelist=xgph12,xgph13           # 指定节点 (根据实际情况修改)
 
 # (可选) 如果需要 conda 环境，先加载相应模块再激活环境
 source ~/.bashrc
