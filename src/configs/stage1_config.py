@@ -127,7 +127,7 @@ parser.add_argument(
 parser.add_argument(
     "--report_to",
     type=str,
-    default="tensorboard",
+    default="wandb",
     help=(
         'The integration to report the results and logs to. Supported platforms are `"tensorboard"`,'
         ' `"wandb"` and `"comet_ml"`. Use `"all"` (default) to report to all integrations.'

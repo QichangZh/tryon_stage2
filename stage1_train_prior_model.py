@@ -25,128 +25,42 @@ logger = get_logger(__name__)
 check_min_version("0.18.0.dev0")
 
 
-# def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, **kwargs):
-#     """Utility function for checkpointing model + optimizer dictionaries
-#     The main purpose for this is to be able to resume training from that instant again
-#     """
-#     checkpoint_state_dict = {
-#         "epoch": epoch,
-#         "last_global_step": last_global_step,
-#     }
-#     # Add extra kwargs too
-#     checkpoint_state_dict.update(kwargs)
-
-#     success = model.save_checkpoint(checkpoint_folder, ckpt_id, checkpoint_state_dict)
-#     status_msg = f"checkpointing: checkpoint_folder={checkpoint_folder}, ckpt_id={ckpt_id}"
-#     if success:
-#         logging.info(f"Success {status_msg}")
-#     else:
-#         logging.warning(f"Failure {status_msg}")
-#     return
-
-
-
-def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, optimizer=None, lr_scheduler=None, **kwargs):
-    """保存检查点，包括模型权重和训练状态"""
-    os.makedirs(checkpoint_folder, exist_ok=True)
-    save_path = os.path.join(checkpoint_folder, f"checkpoint-{ckpt_id}.pt")
-    
+def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, **kwargs):
+    """Utility function for checkpointing model + optimizer dictionaries
+    The main purpose for this is to be able to resume training from that instant again
+    """
     checkpoint_state_dict = {
         "epoch": epoch,
         "last_global_step": last_global_step,
-        "module": model.state_dict(),  # 保存模型权重
     }
-    
-    # 保存优化器状态（如果提供）
-    if optimizer is not None:
-        checkpoint_state_dict["optimizer_state"] = optimizer.state_dict()
-    
-    # 保存学习率调度器状态（如果提供）
-    if lr_scheduler is not None:
-        checkpoint_state_dict["lr_scheduler_state"] = lr_scheduler.state_dict()
-        
-    # 添加其他额外参数
+    # Add extra kwargs too
     checkpoint_state_dict.update(kwargs)
-    
-    # 保存检查点
-    success = torch.save(checkpoint_state_dict, save_path)
-    
+
+    success = model.save_checkpoint(checkpoint_folder, ckpt_id, checkpoint_state_dict)
     status_msg = f"checkpointing: checkpoint_folder={checkpoint_folder}, ckpt_id={ckpt_id}"
     if success:
         logging.info(f"Success {status_msg}")
     else:
         logging.warning(f"Failure {status_msg}")
-    
     return
 
-def load_training_checkpoint(model, load_dir, optimizer=None, lr_scheduler=None, **kwargs):
-    """从检查点加载模型和训练状态，自动选择最新的检查点。如果没有检查点，从头开始训练"""
-    # 确保目录存在
-    if not os.path.exists(load_dir):
-        logging.info(f"Checkpoint directory {load_dir} not found, starting from step 0")
-        return model, 0, 0
-    
-    # 获取所有.pt检查点文件
-    checkpoint_files = [f for f in os.listdir(load_dir) if f.startswith('checkpoint-') and f.endswith('.pt')]
-    
-    # 如果没有检查点文件，从头开始训练
-    if not checkpoint_files:
-        logging.info(f"No checkpoint files found in {load_dir}, starting from step 0")
-        return model, 0, 0
-    
-    # 从文件名提取步数并找到最大的
-    steps = [int(f.split('-')[-1].replace('.pt', '')) for f in checkpoint_files]
-    latest_step = max(steps)
-    latest_checkpoint = os.path.join(load_dir, f"checkpoint-{latest_step}.pt")
-    
-    logging.info(f"Loading checkpoint from step {latest_step}")
-    
-    # 加载检查点
-    checkpoint_state_dict = torch.load(latest_checkpoint, map_location="cpu")
-    
-    # 判断是否有 'module.' 前缀
-    if "module." in next(iter(checkpoint_state_dict["state_dict"].keys())):
-        # 如果有 'module.' 前缀，移除 'module.' 前缀
-        state_dict = {k.replace("module.", ""): v for k, v in checkpoint_state_dict["state_dict"].items()}
-    else:
-        # 如果没有 'module.' 前缀，直接使用
-        state_dict = checkpoint_state_dict["state_dict"]
-    
-    model.load_state_dict(state_dict)
-    
-    # 加载优化器状态（如果有）
-    if optimizer is not None and "optimizer_state" in checkpoint_state_dict:
-        optimizer.load_state_dict(checkpoint_state_dict["optimizer_state"])
-    
-    # 加载学习率调度器状态（如果有）
-    if lr_scheduler is not None and "lr_scheduler_state" in checkpoint_state_dict:
-        lr_scheduler.load_state_dict(checkpoint_state_dict["lr_scheduler_state"])
-    
+
+def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
+    """Utility function for checkpointing model + optimizer dictionaries
+    The main purpose for this is to be able to resume training from that instant again
+    """
+    checkpoint_state_dict= torch.load(load_dir, map_location="cpu")
+
     epoch = checkpoint_state_dict["epoch"]
     last_global_step = checkpoint_state_dict["last_global_step"]
-    
-    return model, epoch, last_global_step
-
-
-
-
-
-# def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
-#     """Utility function for checkpointing model + optimizer dictionaries
-#     The main purpose for this is to be able to resume training from that instant again
-#     """
-#     checkpoint_state_dict= torch.load(load_dir, map_location="cpu")
-
-#     epoch = checkpoint_state_dict["epoch"]
-#     last_global_step = checkpoint_state_dict["last_global_step"]
     # TODO optimizer lr, and loss state
 
-#     weight_dict = checkpoint_state_dict["module"]
-#     new_weight_dict = {f"module.{key}": value for key, value in weight_dict.items()}
-#     model.load_state_dict(new_weight_dict)
-#     del checkpoint_state_dict
+    weight_dict = checkpoint_state_dict["module"]
+    new_weight_dict = {f"module.{key}": value for key, value in weight_dict.items()}
+    model.load_state_dict(new_weight_dict)
+    del checkpoint_state_dict
 
-#     return model, epoch, last_global_step
+    return model, epoch, last_global_step
 
 
 def count_model_params(model):

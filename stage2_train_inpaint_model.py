@@ -243,12 +243,12 @@ def main():
     # print("----------------------------------------------------val_dataloader.batch_size-------------------------------------------")
     # print(val_dataloader.batch_size)
     # # 准备验证dataloader
-    # val_dataloader = accelerator.prepare(val_dataloader)
+    #  = accelerator.prepare()
     # print("----------------------------------------------------val_dataloader.batch_size-------------------------------------------")
     # print(val_dataloader.batch_size)
 
     # Prepare everything with our `accelerator`.
-    sd_model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(sd_model, optimizer, train_dataloader, lr_scheduler)
+    sd_model, optimizer, train_dataloader, lr_scheduler, val_dataloader = accelerator.prepare(sd_model, optimizer, train_dataloader, lr_scheduler, val_dataloader)
 
     # print("----------------------------------------------------val_dataloader.batch_size-------------------------------------------")
     # print(val_dataloader.batch_size)

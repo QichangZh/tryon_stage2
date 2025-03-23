@@ -9,6 +9,7 @@ from transformers import (
 
     CLIPImageProcessor,
 )
+import glob
 import argparse
 import numpy as np
 
@@ -73,38 +74,39 @@ def main(args, rank, select_test_datas,):
         number += 1
 
         #prepare data
-        s_img_path = (args.img_path + select_test_data["source_image"].replace('.jpg', '.png'))
-        t_img_path = (args.img_path + select_test_data["target_image"].replace('.jpg', '.png'))
-
-        s_pose_path = args.pose_path + select_test_data['source_image'].replace('.jpg', '.txt')
-        t_pose_path = (args.pose_path + select_test_data["target_image"].replace(".jpg", ".txt"))
-
+        s_agnostic_path = os.path.join(args.image_path, "agnostic-v3.2", img_name)
+        s_cloth_path    = os.path.join(args.image_path, "cloth",        img_name)
+        s_warp_mask_path = os.path.join(args.image_path, "warp_mask", img_name)
+        s_image_path    = os.path.join(args.image_path, "image",        img_name)
         # image_pair
-        s_image = Image.open(s_img_path).convert("RGB").resize((args.img_width, args.img_height), Image.BICUBIC)
-        t_image = Image.open(t_img_path).convert("RGB").resize((args.img_width, args.img_height), Image.BICUBIC)
-
-        s_pose = read_coordinates_file(s_pose_path).to(device).unsqueeze(1)
-        t_pose = read_coordinates_file(t_pose_path).to(device).unsqueeze(1)
-
+        s_agnostic_img = Image.open(s_agnostic_path).convert("RGB").resize(self.size, Image.BICUBIC)
+        s_cloth_img    = Image.open(s_cloth_path).convert("RGB").resize(self.size, Image.BICUBIC)
+        s_warp_mask_img = Image.open(s_warp_mask_path).convert("RGB").resize(self.size, Image.BICUBIC)
+        s_image_img    = Image.open(s_image_path).convert("RGB").resize(self.size, Image.BICUBIC)
 
 
 
 
-        clip_s_image = clip_image_processor(images=s_image, return_tensors="pt").pixel_values
-        clip_t_image = clip_image_processor(images=t_image, return_tensors="pt").pixel_values
+
+        clip_s_agnostic_img = clip_image_processor(images=s_agnostic_img, return_tensors="pt").pixel_values
+        clip_s_cloth_img = clip_image_processor(images=s_cloth_img, return_tensors="pt").pixel_values
+        clip_s_warp_mask_img = clip_image_processor(images=s_warp_mask_img, return_tensors="pt").pixel_values
+        clip_s_image_img = clip_image_processor(images=s_image_img, return_tensors="pt").pixel_values
 
 
         with torch.no_grad():
-            s_img_embed = (image_encoder(clip_s_image.to(device)).image_embeds).unsqueeze(1)
-            target_embed = image_encoder(clip_t_image.to(device)).image_embeds
+            s_agnostic_img_embed = (image_encoder(clip_s_agnostic_img.to(device)).image_embeds).unsqueeze(1)
+            clip_s_image_img_embed = (image_encoder(clip_s_image_img.to(device)).image_embeds).unsqueeze(1)
+            clip_s_cloth_img_embed = (image_encoder(clip_s_cloth_img.to(device)).image_embeds).unsqueeze(1)
+            target_embed = image_encoder(clip_s_warp_mask_img.to(device)).image_embeds
 
 
 
 
         output = pipe(
-            s_embed = s_img_embed,
-            s_pose = s_pose,
-            t_pose = t_pose,
+            s_embed = clip_s_cloth_img_embed,
+            s_pose = s_agnostic_img_embed,
+            t_pose = clip_s_image_img_embed,
             num_images_per_prompt=1,
             num_inference_steps = args.num_inference_steps,
             generator = generator,
@@ -138,8 +140,8 @@ if __name__ == "__main__":
     parser.add_argument("--image_encoder_path",type=str,default="./OpenCLIP-ViT-H-14",
         help="Path to pretrained model or model identifier from huggingface.co/models.",)
     parser.add_argument("--img_path", type=str, default="./datasets/deepfashing/train_all_png/", help="image path", )
-    parser.add_argument("--pose_path", type=str, default="./datasets/deepfashing/normalized_pose_txt/", help="pose path", )
-    parser.add_argument("--json_path", type=str, default="./datasets/deepfashing/test_data.json", help="json path", )
+    # parser.add_argument("--pose_path", type=str, default="./datasets/deepfashing/normalized_pose_txt/", help="pose path", )
+    # parser.add_argument("--json_path", type=str, default="./datasets/deepfashing/test_data.json", help="json path", )
     parser.add_argument("--save_path", type=str, default="./save_data/stage1", help="save path", )
     parser.add_argument("--guidance_scale",type=int,default=0,help="guidance_scale",)
     parser.add_argument("--seed_number",type=int,default=42,help="seed number",)
@@ -158,8 +160,13 @@ if __name__ == "__main__":
     print("Using {} GPUs inference".format(num_devices))
 
     # load data
-    test_data = json.load(open(args.json_path))
-    select_test_datas = test_data
+    image_folder = os.path.join(args.img_path, "image")
+    image_files = []
+
+    for ext in ['*.jpg', '*.jpeg', '*.png']:
+        image_files.extend(glob.glob(os.path.join(image_folder, ext)))
+
+    select_test_datas = image_files
     print('The number of test data: {}'.format(len(select_test_datas)))
 
     # Create a process pool

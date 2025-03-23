@@ -102,9 +102,9 @@ class InpaintDataset(Dataset):
         warp_img = Image.open(warp_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
 
         black_img = Image.new("RGB", self.size, (0, 0, 0))
-        s_img_mask = Image.new("RGB", (self.size[0] * 2, self.size[1]))
-        s_img_mask.paste(s_img, (0, 0))
-        s_img_mask.paste(black_img, (self.size[0], 0))
+        train_img_mask = Image.new("RGB", (self.size[0] * 2, self.size[1]))
+        train_img_mask.paste(cloth_img, (0, 0))
+        train_img_mask.paste(s_img, (self.size[0], 0))
 
         t_img_path = os.path.join(self.image_root_path, "image", img_name)
         t_img = Image.open(t_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
@@ -121,7 +121,7 @@ class InpaintDataset(Dataset):
         # st_pose.paste(t_pose, (self.size[0], 0))
 
 
-        trans_s_img_mask = self.transform(s_img_mask)
+        trans_train_img_mask = self.transform(train_img_mask)
         trans_st_img = self.transform(st_img)
         # trans_st_pose = self.transform(st_pose)
 
@@ -146,7 +146,7 @@ class InpaintDataset(Dataset):
             "clip_warp_img": clip_warp_img,
             "trans_st_img": trans_st_img,
             # "trans_st_pose": trans_st_pose,
-            "trans_s_img_mask": trans_s_img_mask,
+            "trans_s_img_mask": trans_train_img_mask,
         }
 
     def __len__(self):
