@@ -9,12 +9,8 @@ import glob
 
 from transformers import CLIPImageProcessor
 
+
 def InpaintCollate_fn(data):
-
-
-    source_image = torch.stack([example["clip_s_img"] for example in data])
-    source_image = source_image.to(memory_format=torch.contiguous_format).float()
-
  
     target_image = torch.stack([example["clip_t_img"] for example in data])
     target_image = target_image.to(memory_format=torch.contiguous_format).float()
@@ -26,13 +22,8 @@ def InpaintCollate_fn(data):
     warp_image = warp_image.to(memory_format=torch.contiguous_format).float()
     
 
-    vae_source_mask_image = torch.stack([example["trans_s_img_mask"] for example in data])
-    vae_source_mask_image = vae_source_mask_image.to(memory_format=torch.contiguous_format).float()
-
-
-
-    # source_target_pose = torch.stack([example["trans_st_pose"] for example in data])
-    # source_target_pose = source_target_pose.to(memory_format=torch.contiguous_format).float()
+    vae_train_image = torch.stack([example["trans_train_img_mask"] for example in data])
+    vae_train_image = vae_train_image.to(memory_format=torch.contiguous_format).float()
 
 
     source_target_image = torch.stack([example["trans_st_img"] for example in data])
@@ -41,13 +32,10 @@ def InpaintCollate_fn(data):
 
 
     return {
-
-        "source_image": source_image, 
         "target_image": target_image, 
         "cloth_image": cloth_image,
         "warp_image" : warp_image,
-        "vae_source_mask_image": vae_source_mask_image,
-        # "source_target_pose": source_target_pose,
+        "vae_source_mask_image": vae_train_image,
         "source_target_image": source_target_image,
     }
 
@@ -91,26 +79,24 @@ class InpaintDataset(Dataset):
 
     def __getitem__(self, idx):
         img_name = self.image_files[idx]
-
-        s_img_path = os.path.join(self.image_root_path, "agnostic-v3.2", img_name)
-        s_img = Image.open(s_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
-
         cloth_img_path = os.path.join(self.image_root_path, "cloth", img_name)
         cloth_img = Image.open(cloth_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
 
         warp_img_path = os.path.join(self.image_root_path, "warp_mask", img_name)
         warp_img = Image.open(warp_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
 
-        black_img = Image.new("RGB", self.size, (0, 0, 0))
+        balck_img_path = os.path.join(self.image_root_path, "black_image", img_name)
+        black_img = Image.open(balck_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
+
         train_img_mask = Image.new("RGB", (self.size[0] * 2, self.size[1]))
         train_img_mask.paste(cloth_img, (0, 0))
-        train_img_mask.paste(s_img, (self.size[0], 0))
+        train_img_mask.paste(black_img, (self.size[0], 0))
 
         t_img_path = os.path.join(self.image_root_path, "image", img_name)
         t_img = Image.open(t_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
 
         st_img = (Image.new("RGB", (self.size[0] * 2, self.size[1])))
-        st_img.paste(s_img, (0, 0))
+        st_img.paste(cloth_img, (0, 0))
         st_img.paste(t_img, (self.size[0], 0))
 
         # 创建姿态图的并排组合
@@ -126,27 +112,25 @@ class InpaintDataset(Dataset):
         # trans_st_pose = self.transform(st_pose)
 
 
-
-        clip_s_img = (self.clip_image_processor(images=s_img, return_tensors="pt").pixel_values).squeeze(dim=0)
         clip_t_img = (self.clip_image_processor(images=t_img, return_tensors="pt").pixel_values).squeeze(dim=0)
         clip_cloth_img = (self.clip_image_processor(images=cloth_img, return_tensors="pt").pixel_values).squeeze(dim=0)
         clip_warp_img = (self.clip_image_processor(images=warp_img, return_tensors="pt").pixel_values).squeeze(dim=0)
+
         ## dropout s_img for dinov2
         if random.random() < self.imgp_drop_rate:
-            clip_s_img = torch.zeros(clip_s_img.shape)
+            clip_cloth_img = torch.zeros(clip_cloth_img.shape)
 
         ## dropout t_img_embed
         if random.random() < self.imgg_drop_rate:
-            clip_t_img = torch.zeros(clip_t_img.shape)
+            clip_warp_img = torch.zeros(clip_warp_img.shape)
 
         return {
-            "clip_s_img": clip_s_img,
+            # "clip_s_img": clip_s_img,
             "clip_t_img": clip_t_img,
             "clip_cloth_img": clip_cloth_img, 
             "clip_warp_img": clip_warp_img,
             "trans_st_img": trans_st_img,
-            # "trans_st_pose": trans_st_pose,
-            "trans_s_img_mask": trans_train_img_mask,
+            "trans_train_img_mask": trans_train_img_mask,
         }
 
     def __len__(self):
