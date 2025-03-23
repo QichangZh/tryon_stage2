@@ -4,12 +4,12 @@
 #SBATCH --ntasks-per-node=2                # 每个节点启动 2 个任务（与GPU数量匹配）
 #SBATCH --cpus-per-task=30                 # 每个任务使用 30 个 CPU 核心
 #SBATCH --mem=400G                         # 每个节点分配 400GB 内存
-#SBATCH --gres=gpu:h100-47:2               # 每个节点分配 2 块 GPU
+#SBATCH --gres=gpu:h100-96:2               # 每个节点分配 2 块 GPU
 #SBATCH --time=4-01:00:00                  # 最长运行时间
-#SBATCH --partition=gpu
+#SBATCH --partition=gpu-long
 #SBATCH --mail-type=END,FAIL               # 何时给用户发邮件
 #SBATCH --mail-user=qiczhang@163.com       # 接收邮件的地址
-#SBATCH --nodelist=xgpi19,xgpi24           # 指定节点 (根据实际情况修改)
+#SBATCH --nodelist=xgpi5,xgpi7           # 指定节点 (根据实际情况修改)
 
 # (可选) 如果需要 conda 环境，先加载相应模块再激活环境
 source ~/.bashrc
@@ -29,25 +29,23 @@ srun accelerate launch \
     --num_processes 4 \
     --main_process_ip $head_node \
     --main_process_port 29555 \
-    --multi_gpu \
     --use_deepspeed \
     --deepspeed_config_file ds_config.json \
     --mixed_precision="bf16" \
     stage2_train_inpaint_model.py \
-    --pretrained_model_name_or_path="kandinsky-community/kandinsky-2-2-prior" \
-    --image_encoder_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
-    --img_path="./data/VTON/train" \
-    --output_dir="output_dir_stage2" \
-    --img_height=512 \
-    --img_width=512 \
-    --train_batch_size=128 \
-    --gradient_accumulation_steps=1 \
-    --max_train_steps=100010 \
+    --pretrained_model_name_or_path="stabilityai/stable-diffusion-2-1-base" \
+    --image_encoder_p_path='facebook/dinov2-giant' \
+    --image_encoder_g_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
+    --image_root_path="/home/y/yuansui/tryon_stage1/data/VTON/train"  \
+    --img_height=512  \
+    --img_width=512   \
+    --learning_rate=1e-4 \
+    --train_batch_size=1 \
+    --val_batch_size=32 \
+    --resume_from_checkpoint="logs/stage2" \
+    --max_train_steps=1000000 \
+    --mixed_precision="bf16" \
+    --checkpointing_steps=50  \
     --noise_offset=0.1 \
-    --learning_rate=1e-05 \
-    --weight_decay=0.01 \
-    --lr_scheduler="constant" \
-    --num_warmup_steps=2000 \
-    --checkpointing_steps=5000 \
-    --resume_from_checkpoint="./output_dir_stage2" \
+    --lr_warmup_steps 5000  \
     --seed 42
