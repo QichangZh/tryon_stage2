@@ -332,9 +332,12 @@ def main():
                     masked_latents = vae.encode(batch["vae_source_mask_image"].to(dtype=weight_dtype)).latent_dist.sample()
                     masked_latents = masked_latents * vae.config.scaling_factor
 
+                    mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
+                    mask0 = mask0 * vae.config.scaling_factor
+
                     # mask
                     mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
-                    mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
+                    # mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     mask = torch.cat([mask1, mask0], dim=3)
                     # Get the image embedding for conditioning
                     cond_image_feature_p = image_encoder_p(batch["cloth_image"].to(accelerator.device, dtype=weight_dtype))

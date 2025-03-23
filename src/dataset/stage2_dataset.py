@@ -29,6 +29,9 @@ def InpaintCollate_fn(data):
     source_target_image = torch.stack([example["trans_st_img"] for example in data])
     source_target_image = source_target_image.to(memory_format=torch.contiguous_format).float()
 
+    vae_mask_img = torch.stack([example["mask_img"] for example in data])
+    vae_mask_img = vae_mask_img.to(memory_format=torch.contiguous_format).float()
+
 
 
     return {
@@ -37,6 +40,7 @@ def InpaintCollate_fn(data):
         "warp_image" : warp_image,
         "vae_source_mask_image": vae_train_image,
         "source_target_image": source_target_image,
+        "vae_mask_img": vae_mask_img,
     }
 
 
@@ -85,7 +89,7 @@ class InpaintDataset(Dataset):
         warp_img_path = os.path.join(self.image_root_path, "warp_mask", img_name)
         warp_img = Image.open(warp_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
 
-        balck_img_path = os.path.join(self.image_root_path, "black_image", img_name)
+        balck_img_path = os.path.join(self.image_root_path, "black_cloth", img_name)
         black_img = Image.open(balck_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
 
         train_img_mask = Image.new("RGB", (self.size[0] * 2, self.size[1]))
@@ -98,6 +102,9 @@ class InpaintDataset(Dataset):
         st_img = (Image.new("RGB", (self.size[0] * 2, self.size[1])))
         st_img.paste(cloth_img, (0, 0))
         st_img.paste(t_img, (self.size[0], 0))
+
+        mask_img_path = os.path.join(self.image_root_path, "mask", img_name)
+        mask_img = Image.open(mask_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
 
         # 创建姿态图的并排组合
         # s_pose = Image.open(s_img_path.replace("/train_all_png/", "/openpose_all_img/").replace(".png", "_pose.jpg")).convert("RGB").resize(self.size, Image.BICUBIC)
@@ -131,7 +138,62 @@ class InpaintDataset(Dataset):
             "clip_warp_img": clip_warp_img,
             "trans_st_img": trans_st_img,
             "trans_train_img_mask": trans_train_img_mask,
+            "mask_img": mask_img,
         }
 
     def __len__(self):
         return len(self.image_files)
+
+
+
+def test_black_img_channels():
+    """
+    测试函数：提取black_img的第一个通道并可视化
+    """
+    import numpy as np
+    
+    # 指定测试数据路径
+    test_path = "/home/zqc/project/datat/VITON/train/"
+    
+    # 初始化数据集
+    dataset = InpaintDataset(image_root_path=test_path)
+    
+    # 获取第一个样本
+    if len(dataset) > 0:
+        sample = dataset[0]
+        
+        # 获取原始图像
+        mask_img = sample["mask_img"]
+        
+        # 转换为numpy数组
+        mask_img_np = np.array(mask_img)
+        print(f"原始black_img形状: {mask_img_np.shape}")
+        
+        # 提取第一个通道
+        first_channel = mask_img_np[:,:,0]
+        print(f"第一个通道形状: {first_channel.shape}")
+        
+        # 可视化
+        try:
+            import matplotlib.pyplot as plt
+            plt.figure(figsize=(10, 5))
+            
+            # 显示原始图像
+            plt.subplot(1, 2, 1)
+            plt.imshow(mask_img)
+            plt.title("原始图像")
+            
+            # 显示第一个通道
+            plt.subplot(1, 2, 2)
+            plt.imshow(first_channel, cmap='gray')
+            plt.title("第一个通道 (R)")
+            
+            plt.tight_layout()
+            plt.show()
+        except ImportError:
+            print("无法导入matplotlib显示图像")
+    else:
+        print("数据集为空，无法测试")
+
+if __name__ == "__main__":
+    test_black_img_channels()
