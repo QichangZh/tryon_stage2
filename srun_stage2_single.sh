@@ -28,7 +28,7 @@ echo "======= 验证MIG自动获取方法 ======="
 MIG_UUIDS=$(nvidia-smi -L | grep "MIG " | awk -F'UUID: ' '{print $2}' | awk -F')' '{print $1}' | tr '\n' ',' | sed 's/,$//')
 echo "MIG设备UUID: $MIG_UUIDS"
 export CUDA_VISIBLE_DEVICES=$MIG_UUIDS
-
+echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
 # 验证后启动训练
 python -c "import torch; print(f'PyTorch检测到的GPU数量: {torch.cuda.device_count()}')"
 
