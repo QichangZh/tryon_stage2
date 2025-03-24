@@ -1,20 +1,17 @@
 srun accelerate launch \
-    --num_machines 2 \
-    --num_processes 4 \
-    --main_process_ip xgph12 \
-    --main_process_port 29555 \
+    --num_machines 1 \
+    --num_processes 2 \
     --use_deepspeed \
-    --deepspeed_config_file ds_config.json \
     --mixed_precision="bf16" \
     stage2_train_inpaint_model.py \
     --pretrained_model_name_or_path="stabilityai/stable-diffusion-2-1-base" \
     --image_encoder_p_path='facebook/dinov2-giant' \
     --image_encoder_g_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
     --image_root_path="/home/y/yuansui/tryon_stage1/data/VTON/train"  \
-    --img_height=512  \
-    --img_width=512   \
+    --img_height=1024  \
+    --img_width=768   \
     --learning_rate=1e-4 \
-    --train_batch_size=1 \
+    --train_batch_size=8 \
     --val_batch_size=32 \
     --resume_from_checkpoint="logs/stage2" \
     --max_train_steps=1000000 \
