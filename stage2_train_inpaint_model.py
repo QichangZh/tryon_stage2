@@ -100,7 +100,7 @@ def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
     """Utility function for checkpointing model + optimizer dictionaries
     The main purpose for this is to be able to resume training from that instant again
     """
-    checkpoint_state_dict= torch.load(load_dir, map_location="cpu")
+    checkpoint_state_dict= torch.load(load_dir, map_location="cpu", weights_only=False)
 
 
     print(checkpoint_state_dict.keys())
@@ -303,7 +303,7 @@ def main():
     image_encoder_p.to(accelerator.device, dtype=weight_dtype)
     image_encoder_g.to(accelerator.device, dtype=weight_dtype)
     # sd_model = sd_model.to(dtype=weight_dtype)
-
+    # print(len(train_dataloader))
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
@@ -439,9 +439,12 @@ def main():
                 global_steps += 1
 
                 if global_steps % args.checkpointing_steps == 0:
-                    checkpoint_model(
-                        args.output_dir, global_steps, sd_model, epoch, global_steps
-                    )
+                    if accelerator.is_main_process:
+                        checkpoint_model(
+                            args.output_dir, global_steps, sd_model, epoch, global_steps
+                        )
+                    # 等待所有进程
+                    accelerator.wait_for_everyone()
 
                 # if global_steps % 50 == 0:  # 每50步验证一次
                 #     # 确保只在主进程进行验证和记录

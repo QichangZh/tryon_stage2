@@ -26,9 +26,9 @@ accelerate launch --num_machines 1,--gpu_ids 0,1 --num_processes 2 --use_deepspe
   --train_batch_size=8 \
   --val_batch_size=8 \
   --resume_from_checkpoint="logs/stage2" \
-  --max_train_steps=1000000 \
+  --max_train_steps=21010 \
   --mixed_precision="bf16" \
-  --checkpointing_steps=50  \
+  --checkpointing_steps=3000  \
   --noise_offset=0.1 \
   --lr_warmup_steps=5000  \
   --seed=42
