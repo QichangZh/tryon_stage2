@@ -66,10 +66,23 @@ echo "主节点: $head_node"
 
 echo "======= 检查各节点GPU编号 ======="
 for node in "${nodes[@]}"; do
-    echo "节点 $node 的GPU编号和分配情况:"
-    srun -N1 -n1 --nodelist=$node bash -c "echo '节点 $(hostname) 的CUDA_VISIBLE_DEVICES:' && echo \$CUDA_VISIBLE_DEVICES"
-    srun -N1 -n1 --nodelist=$node bash -c "nvidia-smi --query-gpu=index,name,utilization.gpu --format=csv"
+  echo "节点 $node 的GPU编号和分配情况:"
+  # 正确输出节点名称和GPU信息
+  srun -N1 -n1 --nodelist=$node bash -c "
+    echo \"节点 \$(hostname) 的CUDA_VISIBLE_DEVICES:\"
+    echo \$CUDA_VISIBLE_DEVICES
+    nvidia-smi --query-gpu=index,name,utilization.gpu --format=csv,noheader
+  "
 done
+
+# 在每个节点上显式设置GPU环境变量
+for node in "${nodes[@]}"; do
+  srun -N1 -n1 --nodelist=$node bash -c "
+    export CUDA_VISIBLE_DEVICES=0,1
+    echo \"节点 \$(hostname) 设置 CUDA_VISIBLE_DEVICES=\$CUDA_VISIBLE_DEVICES\"
+  "
+done
+
 
 echo "======= 查找可用端口 ======="
 # 在主节点上查找可用端口
