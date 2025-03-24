@@ -11,7 +11,23 @@
 #SBATCH --mail-user=qiczhang@163.com       # 接收邮件的地址
 ##SBATCH --nodelist=xgph12,xgph13           # 指定节点 (根据实际情况修改)
 
-accelerate launch --num_machines 1,--gpu_ids 0,1,2,3 --num_processes 4 --use_deepspeed --mixed_precision="bf16"  stage2_train_inpaint_model.py \
+source ~/.bashrc
+conda activate tryon
+
+# 在source ~/.bashrc和conda activate后添加
+echo "======= 检查可用的CUDA设备 ======="
+nvidia-smi --list-gpus
+echo "======= GPU详细信息 ======="
+nvidia-smi
+echo "======= CUDA_VISIBLE_DEVICES环境变量 ======="
+echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
+echo "======= 检测到的CUDA设备数量 ======="
+python -c "import torch; print(f'PyTorch检测到的GPU数量: {torch.cuda.device_count()}')"
+python -c "import torch; print(f'可用的GPU设备: {[torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]}')"
+
+
+
+accelerate launch --num_machines 1 --gpu_ids 0,1,2,3 --num_processes 4 --use_deepspeed --mixed_precision="bf16"  stage2_train_inpaint_model.py \
   --pretrained_model_name_or_path="stabilityai/stable-diffusion-2-1-base" \
   --image_encoder_p_path='facebook/dinov2-giant' \
   --image_encoder_g_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
