@@ -12,7 +12,7 @@
 ##SBATCH --nodelist=xgph12,xgph13           # 指定节点 (根据实际情况修改)
 
 # (可选) 如果需要 conda 环境，先加载相应模块再激活环境
-source ~/.bashrc
+# source ~/.bashrc
 conda activate tryon
 
 # 打印当前工作目录
@@ -21,16 +21,53 @@ scontrol show hostnames $SLURM_JOB_NODELIS
 nodes=( $( scontrol show hostnames $SLURM_JOB_NODELIS ) )
 nodes_array=($nodes)
 head_node=${nodes_array[0]}
-echo "${nodes_array[@]}"
+echo "所有节点: ${nodes_array[@]}"
+echo "主节点: $head_node"
+
+# 创建临时目录保存每个节点的输出
+mkdir -p gpu_info
+rm -f gpu_info/*
+
+# 分别在每个节点上执行GPU检查，并保存到独立文件
+echo "======= 正在检查所有节点的GPU分配情况 ======="
+for node in "${nodes_array[@]}"; do
+    echo "正在检查节点: $node"
+    srun -N1 -n1 --nodelist=$node bash -c "echo '节点 $(hostname) 的GPU信息:' > gpu_info/${node}_info.txt && nvidia-smi >> gpu_info/${node}_info.txt"
+    srun -N1 -n1 --nodelist=$node bash -c "echo '可见GPU: $CUDA_VISIBLE_DEVICES' >> gpu_info/${node}_info.txt"
+    srun -N1 -n1 --nodelist=$node bash -c "echo 'GPU数量: $(nvidia-smi --list-gpus | wc -l)' >> gpu_info/${node}_info.txt"
+done
+
+# 显示所有节点的GPU信息
+echo "======= 所有节点的GPU信息 ======="
+for node in "${nodes_array[@]}"; do
+    echo "----------------------------------------"
+    echo "节点 $node 的GPU信息:"
+    cat gpu_info/${node}_info.txt
+    echo "----------------------------------------"
+done
+
+# 显示进程和GPU映射 (在每个节点上分别执行)
+echo "======= 进程和GPU映射信息 ======="
+for node in "${nodes_array[@]}"; do
+    srun -N1 -n1 --nodelist=$node bash -c "echo '节点 $(hostname) 上的进程:' > gpu_info/${node}_proc.txt && ps -ef | grep python | grep -v grep >> gpu_info/${node}_proc.txt"
+done
+
+# 合并显示所有进程信息
+for node in "${nodes_array[@]}"; do
+    echo "----------------------------------------"
+    echo "节点 $node 的进程信息:"
+    cat gpu_info/${node}_proc.txt
+    echo "----------------------------------------"
+done
+
 
 # 修正的accelerate命令行
 srun accelerate launch \
     --num_machines 2 \
     --num_processes 4 \
     --main_process_ip $head_node \
-    --main_process_port 29555 \
+    --main_process_port 25432 \
     --use_deepspeed \
-    --deepspeed_config_file ds_config.json \
     --mixed_precision="bf16" \
     stage2_train_inpaint_model.py \
     --pretrained_model_name_or_path="stabilityai/stable-diffusion-2-1-base" \
@@ -40,7 +77,7 @@ srun accelerate launch \
     --img_height=512  \
     --img_width=512   \
     --learning_rate=1e-4 \
-    --train_batch_size=1 \
+    --train_batch_size=8 \
     --val_batch_size=32 \
     --resume_from_checkpoint="logs/stage2" \
     --max_train_steps=1000000 \

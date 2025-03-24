@@ -1,7 +1,7 @@
 srun accelerate launch \
     --num_machines 2 \
     --num_processes 4 \
-    --main_process_ip $head_node \
+    --main_process_ip xgph12 \
     --main_process_port 29555 \
     --use_deepspeed \
     --deepspeed_config_file ds_config.json \
