@@ -14,17 +14,23 @@
 source ~/.bashrc
 conda activate tryon
 
-# 在source ~/.bashrc和conda activate后添加
-echo "======= 检查可用的CUDA设备 ======="
-nvidia-smi --list-gpus
-echo "======= GPU详细信息 ======="
-nvidia-smi
-echo "======= CUDA_VISIBLE_DEVICES环境变量 ======="
-echo "CUDA_VISIBLE_DEVICES: $CUDA_VISIBLE_DEVICES"
-echo "======= 检测到的CUDA设备数量 ======="
-python -c "import torch; print(f'PyTorch检测到的GPU数量: {torch.cuda.device_count()}')"
-python -c "import torch; print(f'可用的GPU设备: {[torch.cuda.get_device_name(i) for i in range(torch.cuda.device_count())]}')"
+# MIG设备在CUDA中的表示形式: [GPU_ID]:[GI_ID]:[CI_ID]
+export CUDA_VISIBLE_DEVICES="0:1:0,0:2:0,1:1:0,1:2:0"
+# 或使用简化形式 (根据您的NVIDIA驱动版本可能更兼容)
+# export CUDA_VISIBLE_DEVICES="MIG-0-1,MIG-0-2,MIG-1-1,MIG-1-2"
 
+# 验证设备可见性
+echo "======= 验证MIG设备可见性 ======="
+python -c "import torch; print(f'PyTorch检测到的GPU数量: {torch.cuda.device_count()}'); [print(f'设备{i}: {torch.cuda.get_device_name(i)}') for i in range(torch.cuda.device_count())]"
+
+echo "======= 验证MIG自动获取方法 ======="
+# 自动获取MIG设备UUID并设置
+MIG_UUIDS=$(nvidia-smi -L | grep "MIG " | awk -F'UUID: ' '{print $2}' | awk -F')' '{print $1}' | tr '\n' ',' | sed 's/,$//')
+echo "MIG设备UUID: $MIG_UUIDS"
+export CUDA_VISIBLE_DEVICES=$MIG_UUIDS
+
+# 验证后启动训练
+python -c "import torch; print(f'PyTorch检测到的GPU数量: {torch.cuda.device_count()}')"
 
 
 accelerate launch --num_machines 1 --gpu_ids 0,1,2,3 --num_processes 4 --use_deepspeed --mixed_precision="bf16"  stage2_train_inpaint_model.py \
