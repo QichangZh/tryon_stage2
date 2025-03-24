@@ -16,11 +16,12 @@ conda activate tryon
 
 # 清除任何CUDA_VISIBLE_DEVICES设置，让PyTorch能够看到系统识别的完整GPU
 unset CUDA_VISIBLE_DEVICES
+export CUDA_VISIBLE_DEVICES=0,1
 
 # 验证识别的GPU情况
 echo "======= 验证GPU可见性 ======="
 nvidia-smi
-python -c "import torch; print(f'PyTorch检测到的GPU数量: {torch.cuda.device_count()}'); [print(f'设备{i}: {torch.cuda.get_device_name(i)}') for i in range(torch.cuda.device_count())]"
+python -c "import torch; print(f'PyTorch检测到的GPU数量: {torch.cuda.device_count()}')"
 
 # 使用PyTorch识别的两个完整H100 GPU启动训练
 accelerate launch --num_machines 1 --gpu_ids 0,1 --num_processes 2 --use_deepspeed --mixed_precision="bf16" stage2_train_inpaint_model.py \
@@ -31,7 +32,7 @@ accelerate launch --num_machines 1 --gpu_ids 0,1 --num_processes 2 --use_deepspe
   --img_height=1024  \
   --img_width=768   \
   --learning_rate=1e-4 \
-  --train_batch_size=16 \          # 增加批次大小，利用更大的GPU内存
+  --train_batch_size=16 \
   --val_batch_size=32 \
   --resume_from_checkpoint="logs/stage2" \
   --max_train_steps=1000000 \
