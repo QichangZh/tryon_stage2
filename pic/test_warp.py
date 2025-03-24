@@ -27,7 +27,7 @@ for image_file in image_files:
 
     # 生成保存掩码的文件路径
     mask_path = os.path.join(mask_folder, f"{image_file}")
-    # inverted_image = cv2.bitwise_not(mask)
+    # mask = cv2.bitwise_not(mask)
 
     # 保存掩码
     cv2.imwrite(mask_path, mask)

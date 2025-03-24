@@ -27,7 +27,7 @@ from src.dataset.stage2_dataset import InpaintDataset, InpaintCollate_fn
 from transformers import CLIPVisionModelWithProjection
 from transformers import Dinov2Model
 from src.models.stage2_inpaint_unet_2d_condition import Stage2_InapintUNet2DConditionModel
-from save_load_ckpt import load_training_checkpoint, checkpoint_model
+# from save_load_ckpt import load_training_checkpoint, checkpoint_model
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.18.0.dev0")
@@ -96,7 +96,43 @@ class SDModel(torch.nn.Module):
         return pred_noise
 
 
+def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
+    """Utility function for checkpointing model + optimizer dictionaries
+    The main purpose for this is to be able to resume training from that instant again
+    """
+    checkpoint_state_dict= torch.load(load_dir, map_location="cpu")
 
+
+    print(checkpoint_state_dict.keys())
+    epoch = checkpoint_state_dict["epoch"]
+    last_global_step = checkpoint_state_dict["last_global_step"]
+    # TODO optimizer lr, and loss state
+
+    weight_dict = checkpoint_state_dict["module"]
+    new_weight_dict = {f"module.{key}": value for key, value in weight_dict.items()}
+    model.load_state_dict(new_weight_dict)
+    del checkpoint_state_dict
+
+    return model, epoch, last_global_step
+
+def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, **kwargs):
+    """Utility function for checkpointing model + optimizer dictionaries
+    The main purpose for this is to be able to resume training from that instant again
+    """
+    checkpoint_state_dict = {
+        "epoch": epoch,
+        "last_global_step": last_global_step,
+    }
+    # Add extra kwargs too
+    checkpoint_state_dict.update(kwargs)
+
+    success = model.save_checkpoint(checkpoint_folder, ckpt_id, checkpoint_state_dict)
+    status_msg = f"checkpointing: checkpoint_folder={checkpoint_folder}, ckpt_id={ckpt_id}"
+    if success:
+        logging.info(f"Success {status_msg}")
+    else:
+        logging.warning(f"Failure {status_msg}")
+    return
 
 
 
@@ -302,9 +338,7 @@ def main():
         sd_model, last_epoch, last_global_step = load_training_checkpoint( #如何查看是几个进程
             sd_model,
             args.resume_from_checkpoint,
-            optimizer=optimizer,
-            lr_scheduler=lr_scheduler,
-            ckpt_id=None,
+            **{"load_optimizer_states": True, "load_lr_scheduler_states": True},
         )
         accelerator.print(f"Resumed from checkpoint: {args.resume_from_checkpoint}, global step: {last_global_step}")
         starting_epoch = last_epoch
@@ -334,6 +368,7 @@ def main():
 
                     mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
                     mask0 = mask0 * vae.config.scaling_factor
+                    mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
 
                     # mask
                     mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
@@ -405,52 +440,52 @@ def main():
 
                 if global_steps % args.checkpointing_steps == 0:
                     checkpoint_model(
-                        args.output_dir, global_steps, sd_model, epoch, global_steps, optimizer=optimizer,lr_scheduler=lr_scheduler
+                        args.output_dir, global_steps, sd_model, epoch, global_steps
                     )
 
-                if global_steps % 50 == 0:  # 每50步验证一次
-                    # 确保只在主进程进行验证和记录
-                    if accelerator.is_main_process:
-                        logger.info(f"Starting validation at step {global_steps}...")
-                        torch.cuda.empty_cache()
-                        val_loss, metrics = validate_and_evaluate(
-                            sd_model, 
-                            val_dataloader, 
-                            vae,
-                            accelerator, 
-                            global_steps,
-                            weight_dtype,
-                            image_encoder_p,
-                            image_encoder_g,
-                            args
-                        )
-                        logs.update({
-                            "val_loss": val_loss,
-                            "LPIPS": metrics["lpips"],
-                            "SSIM": metrics["ssim"],
-                            "FID": metrics["fid"],
-                            "KID": metrics["kid"]
-                        })
-                        logger.info(f"Step {global_steps}: Validation Loss: {val_loss}")
+                # if global_steps % 50 == 0:  # 每50步验证一次
+                #     # 确保只在主进程进行验证和记录
+                #     if accelerator.is_main_process:
+                #         logger.info(f"Starting validation at step {global_steps}...")
+                #         torch.cuda.empty_cache()
+                #         val_loss, metrics = validate_and_evaluate(
+                #             sd_model, 
+                #             val_dataloader, 
+                #             vae,
+                #             accelerator, 
+                #             global_steps,
+                #             weight_dtype,
+                #             image_encoder_p,
+                #             image_encoder_g,
+                #             args
+                #         )
+                #         logs.update({
+                #             "val_loss": val_loss,
+                #             "LPIPS": metrics["lpips"],
+                #             "SSIM": metrics["ssim"],
+                #             "FID": metrics["fid"],
+                #             "KID": metrics["kid"]
+                #         })
+                #         logger.info(f"Step {global_steps}: Validation Loss: {val_loss}")
 
-                        # 在这里添加保存metrics的代码
-                        metrics_log_dir = os.path.join(args.output_dir, 'metrics_log')
-                        os.makedirs(metrics_log_dir, exist_ok=True)
+                #         # 在这里添加保存metrics的代码
+                #         metrics_log_dir = os.path.join(args.output_dir, 'metrics_log')
+                #         os.makedirs(metrics_log_dir, exist_ok=True)
                         
-                        txt_path = os.path.join(metrics_log_dir, 'evaluation_metrics.txt')
+                #         txt_path = os.path.join(metrics_log_dir, 'evaluation_metrics.txt')
                         
-                        with open(txt_path, 'a') as f:
-                            f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
-                                    f"step-{global_steps} "
-                                    f"lpips-{metrics['lpips']:.6f} "
-                                    f"ssim-{metrics['ssim']:.6f} "
-                                    f"fid-{metrics['fid']:.6f} "
-                                    f"kid-{metrics['kid']:.6f}\n")
+                #         with open(txt_path, 'a') as f:
+                #             f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
+                #                     f"step-{global_steps} "
+                #                     f"lpips-{metrics['lpips']:.6f} "
+                #                     f"ssim-{metrics['ssim']:.6f} "
+                #                     f"fid-{metrics['fid']:.6f} "
+                #                     f"kid-{metrics['kid']:.6f}\n")
 
-                        logger.info(f"Metrics saved to {txt_path}")
+                #         logger.info(f"Metrics saved to {txt_path}")
                     
-                    # 等待所有进程完成验证
-                    accelerator.wait_for_everyone()
+                #     # 等待所有进程完成验证
+                #     accelerator.wait_for_everyone()
 
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}

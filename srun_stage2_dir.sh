@@ -15,6 +15,7 @@ srun accelerate launch \
     --val_batch_size=32 \
     --resume_from_checkpoint="logs/stage2" \
     --max_train_steps=1000000 \
+    --gradient_accumulation_steps=2 \
     --mixed_precision="bf16" \
     --checkpointing_steps=50  \
     --noise_offset=0.1 \

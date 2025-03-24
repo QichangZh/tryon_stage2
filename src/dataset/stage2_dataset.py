@@ -105,6 +105,8 @@ class InpaintDataset(Dataset):
 
         mask_img_path = os.path.join(self.image_root_path, "mask", img_name)
         mask_img = Image.open(mask_img_path).convert("RGB").resize(self.size, Image.BICUBIC)
+        # mask_img = mask_img[:1]
+        mask_img = self.transform(mask_img)
 
         # 创建姿态图的并排组合
         # s_pose = Image.open(s_img_path.replace("/train_all_png/", "/openpose_all_img/").replace(".png", "_pose.jpg")).convert("RGB").resize(self.size, Image.BICUBIC)
