@@ -1,4 +1,4 @@
-accelerate launch --num_machines 1,--gpu_ids 0 --num_processes 1 --use_deepspeed --mixed_precision="bf16"  stage2_train_inpaint_model.py \
+accelerate launch --num_machines 1 --gpu_ids 0 --num_processes 1 --use_deepspeed --mixed_precision="bf16"  stage2_train_inpaint_model.py \
   --pretrained_model_name_or_path="stabilityai/stable-diffusion-2-1-base" \
   --image_encoder_p_path='facebook/dinov2-giant' \
   --image_encoder_g_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \

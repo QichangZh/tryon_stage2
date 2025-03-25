@@ -1,6 +1,7 @@
 srun accelerate launch \
     --num_machines 1 \
     --num_processes 2 \
+    --gpu_ids 0,1 \
     --use_deepspeed \
     --mixed_precision="bf16" \
     stage2_train_inpaint_model.py \

@@ -14,10 +14,6 @@
 source ~/.bashrc
 conda activate tryon
 
-# 清除任何CUDA_VISIBLE_DEVICES设置，让PyTorch能够看到系统识别的完整GPU
-unset CUDA_VISIBLE_DEVICES
-export CUDA_VISIBLE_DEVICES=0,1
-
 # 验证识别的GPU情况
 echo "======= 验证GPU可见性 ======="
 nvidia-smi

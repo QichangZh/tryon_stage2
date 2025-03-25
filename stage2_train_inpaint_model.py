@@ -439,12 +439,9 @@ def main():
                 global_steps += 1
 
                 if global_steps % args.checkpointing_steps == 0:
-                    if accelerator.is_main_process:
-                        checkpoint_model(
-                            args.output_dir, global_steps, sd_model, epoch, global_steps
-                        )
-                    # 等待所有进程
-                    accelerator.wait_for_everyone()
+                    checkpoint_model(
+                        args.output_dir, global_steps, sd_model, epoch, global_steps
+                    )
 
                 # if global_steps % 50 == 0:  # 每50步验证一次
                 #     # 确保只在主进程进行验证和记录
@@ -493,6 +490,8 @@ def main():
 
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
+
+            accelerator.log(logs, step=global_steps)
 
             if global_steps >= args.max_train_steps:
                 break
