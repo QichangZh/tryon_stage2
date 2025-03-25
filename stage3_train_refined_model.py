@@ -82,7 +82,7 @@ def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
     """Utility function for checkpointing model + optimizer dictionaries
     The main purpose for this is to be able to resume training from that instant again
     """
-    checkpoint_state_dict= torch.load(load_dir, map_location="cpu")
+    checkpoint_state_dict= torch.load(load_dir, map_location="cpu", weights_only=False)
 
 
     print(checkpoint_state_dict.keys())
