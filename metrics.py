@@ -507,7 +507,158 @@ class LPIPS():
 
 
 
-
+class KID():
+    """
+    计算Kernel Inception Distance (KID)
+    KID比FID更适合小样本量的情况，同时对异常值也更加稳健
+    """
+    def __init__(self):
+        self.dims = 2048
+        self.batch_size = 128
+        self.cuda = True
+        self.verbose = False
+        self.num_subsets = 100
+        self.max_subset_size = 1000
+        
+        block_idx = InceptionV3.BLOCK_INDEX_BY_DIM[self.dims]
+        self.model = InceptionV3([block_idx])
+        if self.cuda:
+            self.model.cuda()
+            
+    def polynomial_kernel(self, features_1, features_2):
+        """计算多项式核"""
+        feature_dim = features_1.shape[1]
+        # 将特征归一化到单位球面
+        features_1 = features_1 / np.linalg.norm(features_1, axis=1, keepdims=True)
+        features_2 = features_2 / np.linalg.norm(features_2, axis=1, keepdims=True)
+        
+        # 多项式核 K(x,y) = (gamma * <x,y> + coef0)^degree
+        kernel_value = (np.matmul(features_1, features_2.T) + 1) ** 3
+        
+        return kernel_value
+        
+    def compute_kid(self, features_1, features_2):
+        """
+        计算KID值
+        features_1, features_2: 特征向量
+        """
+        n = min(features_1.shape[0], features_2.shape[0])
+        n = min(n, self.max_subset_size)
+        
+        # 确保两组特征数量相同
+        features_1 = features_1[:n]
+        features_2 = features_2[:n]
+        
+        # 计算未中心化的MMD平方
+        xx = self.polynomial_kernel(features_1, features_1)
+        yy = self.polynomial_kernel(features_2, features_2)
+        xy = self.polynomial_kernel(features_1, features_2)
+        
+        # 计算对角线元素和非对角线元素的均值
+        xx_diag = np.mean(np.diag(xx))
+        yy_diag = np.mean(np.diag(yy))
+        
+        # 移除对角线元素
+        xx = xx - np.diag(np.diag(xx))
+        yy = yy - np.diag(np.diag(yy))
+        
+        xx_mean = np.sum(xx) / (n * (n-1))
+        yy_mean = np.sum(yy) / (n * (n-1))
+        xy_mean = np.mean(xy)
+        
+        # KID公式: E[k(x,x')] + E[k(y,y')] - 2*E[k(x,y)]
+        kid = xx_mean + yy_mean - 2 * xy_mean
+        
+        return kid
+    
+    def calculate_from_disk(self, generated_path, gt_path, img_size):
+        """从磁盘上的图像计算KID值"""
+        if not os.path.exists(gt_path):
+            raise RuntimeError('Invalid path: %s' % gt_path)
+        if not os.path.exists(generated_path):
+            raise RuntimeError('Invalid path: %s' % generated_path)
+            
+        print('exp-path - ' + generated_path)
+        
+        # 获取真实图像的特征
+        print('extracting gt_path features...')
+        gt_features = self._extract_features_from_path(gt_path, self.verbose, img_size)
+        
+        # 获取生成图像的特征
+        print('extracting generated_path features...')
+        gen_features = self._extract_features_from_path(generated_path, self.verbose, img_size)
+        
+        # 计算KID
+        print('calculating kernel inception distance...')
+        kid_value = self.compute_kid(gen_features, gt_features)
+        print('KID: %f' % kid_value)
+        
+        return kid_value
+    
+    def _extract_features_from_path(self, path, verbose, img_size):
+        """从路径提取特征"""
+        path = pathlib.Path(path)
+        files = list(path.glob('*.jpg')) + list(path.glob('*.png'))
+        
+        # 使用特征缓存避免重复计算
+        size_flag = '{}_{}'.format(img_size[0], img_size[1])
+        npz_file = os.path.join(path, size_flag + '_features.npz')
+        
+        if os.path.exists(npz_file):
+            f = np.load(npz_file)
+            features = f['features'][:]
+            f.close()
+        else:
+            # 加载并预处理图像
+            imgs = (np.array([(cv2.resize(imread(str(fn)).astype(np.float32), img_size, interpolation=cv2.INTER_CUBIC)) for fn in files])) / 255.0
+            # 转换为(B, 3, H, W)格式
+            imgs = imgs.transpose((0, 3, 1, 2))
+            
+            # 获取激活值（特征）
+            features = self.get_activations(imgs, verbose)
+            np.savez(npz_file, features=features)
+            
+        return features
+    
+    def get_activations(self, images, verbose=False):
+        """
+        使用InceptionV3模型计算图像的激活值
+        与FID类中的实现类似
+        """
+        self.model.eval()
+        
+        d0 = images.shape[0]
+        if self.batch_size > d0:
+            print('Warning: batch size is bigger than the data size. Setting batch size to data size')
+            self.batch_size = d0
+            
+        n_batches = d0 // self.batch_size
+        n_used_imgs = n_batches * self.batch_size
+        
+        pred_arr = np.empty((n_used_imgs, self.dims))
+        
+        for i in range(n_batches):
+            if verbose:
+                print('\rPropagating batch %d/%d' % (i + 1, n_batches))
+            start = i * self.batch_size
+            end = start + self.batch_size
+            
+            batch = torch.from_numpy(images[start:end]).type(torch.FloatTensor)
+            if self.cuda:
+                batch = batch.cuda()
+                
+            pred = self.model(batch)[0]
+            
+            # 如果模型输出不是标量，应用全局空间平均池化
+            if pred.shape[2] != 1 or pred.shape[3] != 1:
+                pred = adaptive_avg_pool2d(pred, output_size=(1, 1))
+                
+            pred_arr[start:end] = pred.cpu().data.numpy().reshape(self.batch_size, -1)
+            
+        if verbose:
+            print(' done')
+            
+        return pred_arr
 
 
 

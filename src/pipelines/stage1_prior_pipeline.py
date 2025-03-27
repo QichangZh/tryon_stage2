@@ -462,6 +462,7 @@ class Stage1_PriorPipeline(DiffusionPipeline):
                 encoder_hidden_states=s_pose,  # pose
                 encoder_hidden_states1=t_pose,  # pose1
                 attention_mask=None,
+                test_flag=do_classifier_free_guidance,
             ).predicted_image_embedding
 
             if do_classifier_free_guidance:
