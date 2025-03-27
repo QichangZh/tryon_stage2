@@ -182,8 +182,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_inference_steps", type=int, default=20, help="推理步数")
     parser.add_argument("--img_width", type=int, default=384, help="图像宽度")
     parser.add_argument("--img_height", type=int, default=512, help="图像高度")
-    parser.add_argument("--weights_name", type=str, default="/home/zqc/project/weight/stage1-35000.pt", help="权重文件")
-    parser.add_argument("--batch_size", type=int, default=4, help="批处理大小")
+    parser.add_argument("--weights_name", type=str, default="/home/zqc/project/weight/stage1-85000.pt", help="权重文件")
+    parser.add_argument("--batch_size", type=int, default=2, help="批处理大小")
     parser.add_argument("--num_workers", type=int, default=4, help="DataLoader的工作线程数")
 
     args = parser.parse_args()
@@ -202,6 +202,7 @@ if __name__ == "__main__":
 
     select_test_datas = image_files
     print('测试数据数量: {}'.format(len(select_test_datas)))
+    torch.cuda.empty_cache()
 
     # 单卡版本，直接调用main函数
     main(args, 0, select_test_datas)  # rank设为0，使用所有测试数据

@@ -274,15 +274,17 @@ if __name__ == "__main__":
     mp.set_start_method("spawn")
     data_list = split_list_into_chunks(select_test_datas, num_devices)
 
+    main(args, 0, data_list[0])
 
-    processes = []
-    for rank in range(num_devices):
-        p = mp.Process(target=inference, args=(args, rank, data_list[rank] ))
-        processes.append(p)
-        p.start()
 
-    for rank, p in enumerate(processes):
-        p.join()
+    # processes = []
+    # for rank in range(num_devices):
+    #     p = mp.Process(target=inference, args=(args, rank, data_list[rank] ))
+    #     processes.append(p)
+    #     p.start()
+
+    # for rank, p in enumerate(processes):
+    #     p.join()
 
 
 

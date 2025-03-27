@@ -311,7 +311,8 @@ def main():
     # Afterwards we recalculate our number of training epochs
     args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
-
+    if accelerator.is_main_process:
+        accelerator.init_trackers("text2image", config=vars(args))
 
 
     # Train!

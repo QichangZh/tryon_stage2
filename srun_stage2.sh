@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=accelerate_stage2       # 修改为stage2
-#SBATCH --nodes=2                          # 需要 2 个节点
+#SBATCH --nodes=1                          # 需要 2 个节点
 #SBATCH --ntasks-per-node=2                # 每个节点启动 2 个任务（与GPU数量匹配）
 #SBATCH --cpus-per-task=60                 # 每个任务使用 30 个 CPU 核心
 #SBATCH --mem=800G                         # 每个节点分配 400GB 内存
@@ -28,7 +28,7 @@ srun accelerate launch \
     --image_root_path="/home/y/yuansui/data/VTON/train"  \
     --img_height=512  \
     --img_width=384   \
-    --learning_rate=1e-4 \
+    --learning_rate=3e-4 \
     --train_batch_size=48 \
     --val_batch_size=32 \
     --max_train_steps=21010 \
