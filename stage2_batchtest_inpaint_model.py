@@ -274,7 +274,7 @@ if __name__ == "__main__":
     mp.set_start_method("spawn")
     data_list = split_list_into_chunks(select_test_datas, num_devices)
 
-    main(args, 0, data_list[0])
+    inference(args, 0, data_list[0])
 
 
     # processes = []

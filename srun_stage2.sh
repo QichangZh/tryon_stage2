@@ -28,10 +28,10 @@ srun accelerate launch \
     --image_root_path="/home/y/yuansui/data/VTON/train"  \
     --img_height=512  \
     --img_width=384   \
-    --learning_rate=3e-4 \
+    --learning_rate=1e-5 \
     --train_batch_size=48 \
     --val_batch_size=32 \
-    --max_train_steps=21010 \
+    --max_train_steps=30010 \
     --gradient_accumulation_steps=2 \
     --mixed_precision="bf16" \
     --checkpointing_steps=3000  \

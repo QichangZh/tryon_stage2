@@ -91,7 +91,7 @@ parser.add_argument(
 parser.add_argument(
     "--lr_scheduler",
     type=str,
-    default="constant",
+    default="cosine_with_restarts",
     help=(
         'The scheduler type to use. Choose between ["linear", "cosine", "cosine_with_restarts", "polynomial",'
         ' "constant", "constant_with_warmup"]'
@@ -106,7 +106,7 @@ parser.add_argument(
 parser.add_argument(
     "--lr_num_cycles",
     type=int,
-    default=1,
+    default=3,
     help="Number of hard resets of the lr in cosine_with_restarts scheduler.",
 )
 parser.add_argument(
