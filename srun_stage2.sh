@@ -5,7 +5,7 @@
 #SBATCH --cpus-per-task=60                 # 每个任务使用 30 个 CPU 核心
 #SBATCH --mem=800G                         # 每个节点分配 400GB 内存
 #SBATCH --gres=gpu:h100-96:2               # 每个节点分配 2 块 GPU
-#SBATCH --time=4-01:00:00                  # 最长运行时间
+#SBATCH --time=3-01:00:00                  # 最长运行时间
 #SBATCH --partition=gpu-long
 #SBATCH --mail-type=END,FAIL               # 何时给用户发邮件
 #SBATCH --mail-user=qiczhang@163.com       # 接收邮件的地址

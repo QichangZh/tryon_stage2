@@ -377,6 +377,7 @@ def main():
                         mode='bilinear',  # 也可以使用'nearest'、'bicubic'等
                         align_corners=False
                     )
+                    mask0 = (mask0 > 0).float()
 
                     # mask
                     mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
