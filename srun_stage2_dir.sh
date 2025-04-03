@@ -1,4 +1,4 @@
-accelerate launch \
+srun accelerate launch \
     --num_machines 1 \
     --num_processes 2 \
     --use_deepspeed \
