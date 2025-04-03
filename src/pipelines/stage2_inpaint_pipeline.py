@@ -503,7 +503,7 @@ class Stage2_InpaintDiffusionPipeline(DiffusionPipeline):
 
                 noise_pred = \
                 self.unet(noise_mask_maskedimage_latents, t, class_labels=prior_embed, encoder_hidden_states=feature_f,
-                          my_pose_cond=pose_cond, cross_attention_kwargs=cross_attention_kwargs, return_dict=False)[0]
+                          cross_attention_kwargs=cross_attention_kwargs, return_dict=False)[0]
 
 
                 # perform guidance
@@ -791,8 +791,8 @@ class Simple_Stage2_InpaintDiffusionPipeline(DiffusionPipeline):
         do_classifier_free_guidance = guidance_scale > 1.0
 
         # st pose
-        pose_cond = torch.cat([st_pose_f] * 2* num_images_per_prompt) if do_classifier_free_guidance else st_pose_f
-        pose_cond = pose_cond.to(dtype=torch.float16, device=device)
+        # pose_cond = torch.cat([st_pose_f] * 2* num_images_per_prompt) if do_classifier_free_guidance else st_pose_f
+        # pose_cond = pose_cond.to(dtype=torch.float16, device=device)
 
         #  masked label
         if mask == None:
@@ -859,7 +859,7 @@ class Simple_Stage2_InpaintDiffusionPipeline(DiffusionPipeline):
 
                 noise_pred = \
                 self.unet(noise_mask_maskedimage_latents, t, encoder_hidden_states=feature_f,
-                          my_pose_cond=pose_cond, cross_attention_kwargs=cross_attention_kwargs, return_dict=False)[0]
+                          cross_attention_kwargs=cross_attention_kwargs, return_dict=False)[0]
 
                 # perform guidance
                 if do_classifier_free_guidance:

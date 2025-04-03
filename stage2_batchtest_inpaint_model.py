@@ -11,6 +11,10 @@ from transformers import (
     CLIPVisionModelWithProjection,
     CLIPImageProcessor,
 )
+from diffusers import (
+    AutoencoderKL,
+    DDPMScheduler,
+)
 import argparse
 from transformers import Dinov2Model
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -150,6 +154,8 @@ def inference(args, rank, select_test_datas):
     all_ssim = []
 
     start_time = time.time()
+    vae = AutoencoderKL.from_pretrained(args.pretrained_model_name_or_path, subfolder="vae")
+    vae.requires_grad_(False)
 
 
     for img_name in image_files:
@@ -172,12 +178,14 @@ def inference(args, rank, select_test_datas):
         mask_img = Image.open(mask_img_path).convert("RGB").resize((args.img_width, args.img_height), Image.BICUBIC)
         black_img = Image.open(black_img_path).convert("RGB").resize((args.img_width, args.img_height), Image.BICUBIC)
 
-        mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
+        mask0 = img_transform(mask_img).to(dtype=torch.float32).unsqueeze(0)
+        # mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
+        mask0 = vae.encode(mask0).latent_dist.sample()
         mask0 = mask0 * vae.config.scaling_factor
         mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
 
         # mask
-        mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
+        mask1 = torch.ones((1, 1, int(args.img_height / 8), int(args.img_width / 8))).to(dtype=torch.float32)
         # mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
         mask = torch.cat([mask1, mask0], dim=3)
 
@@ -210,6 +218,7 @@ def inference(args, rank, select_test_datas):
                 guidance_scale=args.guidance_scale,
                 generator=generator,
                 num_inference_steps=args.num_inference_steps,
+                mask=mask,
             )
 
 
