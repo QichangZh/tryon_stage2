@@ -3,9 +3,9 @@ import numpy as np
 import os
 
 # 定义文件夹路径
-mask_dir = "/home/zqc/project/datat/VITON/train/agnostic-v3.2"    # 掩码图像所在目录
-image_dir = "/home/zqc/project/datat/VITON/train/image"         # 原始图像所在目录
-output_dir = "/home/zqc/project/datat/VITON/train/warp_mask"            # 输出目录
+mask_dir = "/root/autodl-tmp/data/test/agnostic-v3.2"    # 掩码图像所在目录
+image_dir = "/root/autodl-tmp/data/test/image"         # 原始图像所在目录
+output_dir = "/root/autodl-tmp/data/test/warp_mask"            # 输出目录
 
 # 如果输出文件夹不存在，则创建
 if not os.path.exists(output_dir):

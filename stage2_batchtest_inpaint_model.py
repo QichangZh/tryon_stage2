@@ -65,9 +65,11 @@ class ImageProjModel_p(torch.nn.Module):
 
 def get_image_files(directory):
     """获取目录中的所有图像文件"""
+    image_dir = os.path.join(directory, "image")
     image_files = []
     for ext in ['*.jpg', '*.jpeg', '*.png']:
-        image_files.extend(glob.glob(os.path.join(directory, ext)))
+        image_files.extend(glob.glob(os.path.join(image_dir, ext)))
+    print(len(image_files))
     return [os.path.basename(f) for f in image_files]
 
 
@@ -152,16 +154,16 @@ def inference(args, rank, select_test_datas):
 
     for img_name in image_files:
 
-        cloth_img_path = os.path.join(args.image_root_path, "cloth", img_name)
-        warp_img_path = os.path.join(args.image_root_path, "warp_mask", img_name)
-        t_img_path = os.path.join(args.image_root_path, "image", img_name)
-        mask_img_path = os.path.join(args.image_root_path, "mask", img_name)
-        black_img_path = os.path.join(args.image_root_path, "black_cloth", img_name)
+        cloth_img_path = os.path.join(args.img_path, "cloth", img_name)
+        warp_img_path = os.path.join(args.img_path, "warp_mask", img_name)
+        t_img_path = os.path.join(args.img_path, "image", img_name)
+        mask_img_path = os.path.join(args.img_path, "mask", img_name)
+        black_img_path = os.path.join(args.img_path, "black_cloth", img_name)
         
         # 检查文件是否存在
-        if not all(os.path.exists(p) for p in [cloth_img_path, warp_img_path, t_img_path, mask_img_path, black_img_path]):
-            print(f"跳过 {img_name}，因为某些必要的文件不存在")
-            continue
+        # if not all(os.path.exists(p) for p in [cloth_img_path, warp_img_path, t_img_path, mask_img_path, black_img_path]):
+        #     print(f"跳过 {img_name}，因为某些必要的文件不存在")
+        #     continue
 
         # 读取并调整图像大小
         cloth_img = Image.open(cloth_img_path).convert("RGB").resize((args.img_width, args.img_height), Image.BICUBIC)
@@ -169,6 +171,16 @@ def inference(args, rank, select_test_datas):
         t_img = Image.open(t_img_path).convert("RGB").resize((args.img_width, args.img_height), Image.BICUBIC)
         mask_img = Image.open(mask_img_path).convert("RGB").resize((args.img_width, args.img_height), Image.BICUBIC)
         black_img = Image.open(black_img_path).convert("RGB").resize((args.img_width, args.img_height), Image.BICUBIC)
+
+        mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
+        mask0 = mask0 * vae.config.scaling_factor
+        mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
+
+        # mask
+        mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
+        # mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
+        mask = torch.cat([mask1, mask0], dim=3)
+
 
         # 创建遮罩组合图像
         s_img_t_mask = Image.new("RGB", (args.img_width * 2, args.img_height))
@@ -189,7 +201,7 @@ def inference(args, rank, select_test_datas):
 
         output = pipe(
                 height=args.img_height,
-                width=args.img_weigh*2,
+                width=args.img_width*2,
                 guidance_rescale=0.0,
                 vae_image=vae_image,
                 s_img_proj_f=cloth_img_proj_f,
@@ -241,21 +253,21 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Simple example of an inpaint model of stage2 script.")
     parser.add_argument("--pretrained_model_name_or_path", type=str,
-                        default="/mnt/aigc_cq/private/feishen/weights/stable-diffusion-2-1-base",
+                        default="stabilityai/stable-diffusion-2-1-base",
                         help="Path to pretrained model or model identifier from huggingface.co/models.", )
-    parser.add_argument("--image_encoder_g_path",type=str,default="./OpenCLIP-ViT-H-14",
+    parser.add_argument("--image_encoder_g_path",type=str,default="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
         help="Path to pretrained model or model identifier from huggingface.co/models.",)
-    parser.add_argument("--image_encoder_p_path",type=str,default="./dinov2-giant",
+    parser.add_argument("--image_encoder_p_path",type=str,default="facebook/dinov2-giant",
         help="Path to pretrained model or model identifier from huggingface.co/models.",)
-    parser.add_argument("--img_path", type=str,default="./datasets/deepfashing/train_all_png/", help="image path", )
+    parser.add_argument("--img_path", type=str,default="/root/autodl-tmp/data/test", help="image path", )
     parser.add_argument("--pose_path", type=str,default="./datasets/deepfashing/openpose_all_img/",help="pose path", )
     # parser.add_argument("--json_path", type=str,default="./datasets/deepfashing/test_data.json",help="json path", )
-    parser.add_argument("--target_embed_path", type=str,default="./save_data/stage1/guidancescale0_seed42_numsteps20/",help="t_img_embed path", )
-    # parser.add_argument("--save_path", type=str, default="./save_data/stage2", help="save path", )
+    parser.add_argument("--target_embed_path", type=str,default="./logs/view_stage1/384_512/",help="t_img_embed path", )
+    parser.add_argument("--save_path", type=str, default="./logs/view_stage2/384_512", help="save path", )
     parser.add_argument("--guidance_scale",type=int,default=2.0,help="guidance_scale",)
     parser.add_argument("--seed_number",type=int,default=42,help="seed number",)
     parser.add_argument("--num_inference_steps",type=int,default=20,help="num_inference_steps",)
-    parser.add_argument("--img_width",type=int,default=512,help="image width",)
+    parser.add_argument("--img_width",type=int,default=384,help="image width",)
     parser.add_argument("--img_height",type=int,default=512,help="image height",)
     parser.add_argument("--calculate_metrics",  action='store_true', help="caculate ssim", )
     # parser.add_argument("--weights_name", type=str, default="./Checkpoints/stage2_checkpoints/512",help="weights number", )

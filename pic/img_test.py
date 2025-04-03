@@ -3,9 +3,9 @@ import numpy as np
 import os
 
 # 定义图片和掩码文件夹路径
-image_folder = '/home/zqc/project/datat/VITON/train/image/'
-mask_folder = '/home/zqc/project/datat/VITON/train/mask1/'
-output_folder = '/home/zqc/project/datat/VITON/train/black_cloth/'
+image_folder = '/root/autodl-tmp/data/test/image/'
+mask_folder = '/root/autodl-tmp/data/test/mask1/'
+output_folder = '/root/autodl-tmp/data/test/black_cloth/'
 
 # 如果目标文件夹不存在，创建它
 if not os.path.exists(output_folder):

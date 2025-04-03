@@ -3,8 +3,8 @@ parser = argparse.ArgumentParser(description="Simple example of a ControlNet tra
 parser.add_argument(
     "--pretrained_model_name_or_path",
     type=str,
-    default=None,
-    required=True,
+    default="stabilityai/stable-diffusion-2-1-base",
+    # required=True,
     help="Path to pretrained model or model identifier from huggingface.co/models.",)
 
 
@@ -15,7 +15,7 @@ parser.add_argument(
 parser.add_argument(
     "--train_batch_size",
     type=int,
-    default=4,
+    default=1,
     help="Batch size (per device) for the training dataloader.",
 )
 parser.add_argument("--num_train_epochs", type=int, default=10000)
@@ -38,13 +38,13 @@ parser.add_argument(
     ),
 )
 parser.add_argument("--json_path", type=str, default="./datasets/deepfashing/train_data.json", help="json path", )
-parser.add_argument("--image_root_path", type=str, default="./datasets/deepfashing/all_data_png/", help="image path", )
-parser.add_argument("--image_encoder_g_path", type=str, default="./OpenCLIP-ViT-H-14",
+parser.add_argument("--image_root_path", type=str, default="/root/autodl-tmp/data/test", help="image path", )
+parser.add_argument("--image_encoder_g_path", type=str, default="laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
                     help="Path to pretrained model or model identifier from huggingface.co/models.", )
-parser.add_argument("--image_encoder_p_path", type=str, default="./dinov2-giant",
+parser.add_argument("--image_encoder_p_path", type=str, default="facebook/dinov2-giant",
                     help="Path to pretrained model or model identifier from huggingface.co/models.", )
 parser.add_argument("--output_dir",type=str,default="./logs/stage2",help="The output directory where the model predictions and checkpoints will be written.",)
-parser.add_argument("--img_width", type=int, default=512, help="device number", )
+parser.add_argument("--img_width", type=int, default=384, help="device number", )
 parser.add_argument("--img_height", type=int, default=512, help="device number", )
 parser.add_argument(
     "--resume_from_checkpoint",

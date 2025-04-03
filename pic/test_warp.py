@@ -3,8 +3,8 @@ import numpy as np
 import os
 
 # 定义图片文件夹路径
-image_folder = '/home/zqc/project/datat/VITON/train/agnostic-v3.2/'
-mask_folder = '/home/zqc/project/datat/VITON/train/mask1/'
+image_folder = '/root/autodl-tmp/data/test/agnostic-v3.2/'
+mask_folder = '/root/autodl-tmp/data/test/mask/'
 
 # 如果目标文件夹不存在，创建它
 if not os.path.exists(mask_folder):
@@ -27,7 +27,7 @@ for image_file in image_files:
 
     # 生成保存掩码的文件路径
     mask_path = os.path.join(mask_folder, f"{image_file}")
-    # mask = cv2.bitwise_not(mask)
+    mask = cv2.bitwise_not(mask)
 
     # 保存掩码
     cv2.imwrite(mask_path, mask)

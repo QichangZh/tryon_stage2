@@ -27,6 +27,7 @@ from src.dataset.stage2_dataset import InpaintDataset, InpaintCollate_fn
 from transformers import CLIPVisionModelWithProjection
 from transformers import Dinov2Model
 from src.models.stage2_inpaint_unet_2d_condition import Stage2_InapintUNet2DConditionModel
+import matplotlib.pyplot as plt
 # from save_load_ckpt import load_training_checkpoint, checkpoint_model
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
@@ -367,14 +368,32 @@ def main():
                     masked_latents = vae.encode(batch["vae_source_mask_image"].to(dtype=weight_dtype)).latent_dist.sample()
                     masked_latents = masked_latents * vae.config.scaling_factor
 
-                    mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
-                    mask0 = mask0 * vae.config.scaling_factor
+                    mask0 = batch["vae_mask_img"].to(dtype=weight_dtype)
                     mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
+                    # 使用插值调整mask0的大小
+                    mask0 = F.interpolate(
+                        mask0,
+                        size=(int(args.img_height / 8), int(args.img_width / 8)),
+                        mode='bilinear',  # 也可以使用'nearest'、'bicubic'等
+                        align_corners=False
+                    )
 
                     # mask
                     mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     # mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     mask = torch.cat([mask1, mask0], dim=3)
+                    mask_np = mask.detach().cpu().numpy()
+                    sample_mask = mask_np[0, 0]
+                    plt.figure(figsize=(12, 5))
+
+                    # 显示整个掩码
+                    plt.imshow(sample_mask, cmap='gray')
+                    plt.colorbar()
+                    plt.title('Complete Mask')
+                    plt.savefig('complete_mask.png')
+
+
+
                     # Get the image embedding for conditioning
                     cond_image_feature_p = image_encoder_p(batch["cloth_image"].to(accelerator.device, dtype=weight_dtype))
                     cond_image_feature_p = (cond_image_feature_p.last_hidden_state)
