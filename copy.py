@@ -1,4 +1,5 @@
 import os
+import glob
 from PIL import Image
 import numpy as np
 from diffusers import UniPCMultistepScheduler
@@ -15,21 +16,19 @@ import argparse
 from transformers import Dinov2Model
 from typing import Any, Dict, List, Optional, Tuple, Union
 from skimage.metrics import structural_similarity as compare_ssim
-import glob
+
 import torch
 import torch.nn as nn
 import torch.multiprocessing as mp
-import json
 import time
 
 def split_list_into_chunks(lst, n):
-    chunk_size = len(lst) // n
+    chunk_size = max(1, len(lst) // n)
     chunks = [lst[i:i + chunk_size] for i in range(0, len(lst), chunk_size)]
     if len(chunks) > n:
         last_chunk = chunks.pop()
         chunks[-1].extend(last_chunk)
     return chunks
-
 
 
 def image_grid(imgs, rows, cols):
@@ -42,7 +41,6 @@ def image_grid(imgs, rows, cols):
     for i, img in enumerate(imgs):
         grid.paste(img, box=(i % cols * w, i // cols * h))
     return grid
-
 
 
 class ImageProjModel_p(torch.nn.Module):
@@ -63,6 +61,7 @@ class ImageProjModel_p(torch.nn.Module):
     def forward(self, x):
         return self.net(x)
 
+
 def get_image_files(directory):
     """获取目录中的所有图像文件"""
     image_files = []
@@ -71,14 +70,11 @@ def get_image_files(directory):
     return [os.path.basename(f) for f in image_files]
 
 
-
-def inference(args, rank, select_test_datas):
-
+def inference(args, rank, image_files):
     device = torch.device(f"cuda:{rank}")
     generator = torch.Generator(device=device).manual_seed(args.seed_number)
 
-
-    # save path
+    # 保存路径
     save_dir = "{}/show_guidancescale{}_seed{}_numsteps{}/".format(args.save_path, args.guidance_scale, args.seed_number, args.num_inference_steps)
     save_dir_metric = "{}/guidancescale{}_seed{}_numsteps{}/".format(args.save_path, args.guidance_scale, args.seed_number, args.num_inference_steps)
 
@@ -95,8 +91,7 @@ def inference(args, rank, select_test_datas):
         transforms.Normalize([0.5], [0.5]),
     ])
 
-
-    # model define
+    # 模型定义
     image_proj_model_p_dict = {}
     pose_proj_dict = {}
     unet_dict = {}
@@ -105,14 +100,15 @@ def inference(args, rank, select_test_datas):
     image_encoder_p = Dinov2Model.from_pretrained(args.image_encoder_p_path).to(device).eval()
 
     image_proj_model_p = ImageProjModel_p(in_dim=1536, hidden_dim=768, out_dim=1024).to(device).eval()
-    # pose_proj = ControlNetConditioningEmbedding(320, 3, (16, 32, 96, 256)).to(device).eval()
+    pose_proj = ControlNetConditioningEmbedding(320, 3, (16, 32, 96, 256)).to(device).eval()
 
+    # 从Hugging Face下载权重
     repo_id = "bailuyucha/stage2"
     filename = f"{args.step_number}/mp_rank_00_model_states.pt"
     from huggingface_hub import hf_hub_download
-    print(f"Downloading checkpoint from {repo_id}, file: {filename}")
+    print(f"下载检查点，来源：{repo_id}，文件：{filename}")
     weights_path = hf_hub_download(repo_id=repo_id, filename=filename)
-    print(f"Downloaded checkpoint to {weights_path}")
+    print(f"已下载检查点到：{weights_path}")
 
     model_sd = torch.load(weights_path, map_location="cpu")["module"]
 
@@ -121,21 +117,26 @@ def inference(args, rank, select_test_datas):
             pose_proj_dict[k.replace("pose_proj.", "")] = model_sd[k]
         elif k.startswith("image_proj_model_p"):
             image_proj_model_p_dict[k.replace("image_proj_model_p.", "")] = model_sd[k]
-
         elif k.startswith("unet"):
             unet_dict[k.replace("unet.", "")] = model_sd[k]
         else:
             print(k)
 
-    # pose_proj.load_state_dict(pose_proj_dict)
+    pose_proj.load_state_dict(pose_proj_dict)
     image_proj_model_p.load_state_dict(image_proj_model_p_dict)
 
-    pipe = Stage2_InpaintDiffusionPipeline.from_pretrained(args.pretrained_model_name_or_path,torch_dtype=torch.float16).to(device)
+    pipe = Stage2_InpaintDiffusionPipeline.from_pretrained(args.pretrained_model_name_or_path, torch_dtype=torch.float16).to(device)
 
-    pipe.unet= Stage2_InapintUNet2DConditionModel.from_pretrained(args.pretrained_model_name_or_path, subfolder="unet",
-                                           in_channels=9, class_embed_type="projection",
-                                           projection_class_embeddings_input_dim=1024,torch_dtype=torch.float16,
-                                           low_cpu_mem_usage=False, ignore_mismatched_sizes=True).to(device)
+    pipe.unet = Stage2_InapintUNet2DConditionModel.from_pretrained(
+        args.pretrained_model_name_or_path, 
+        subfolder="unet",
+        in_channels=9, 
+        class_embed_type="projection",
+        projection_class_embeddings_input_dim=1024,
+        torch_dtype=torch.float16,
+        low_cpu_mem_usage=False, 
+        ignore_mismatched_sizes=True
+    ).to(device)
 
     pipe.unet.load_state_dict(unet_dict)
 
@@ -143,15 +144,11 @@ def inference(args, rank, select_test_datas):
     pipe.enable_xformers_memory_efficient_attention()
     print(f'====================== 模型加载完成 ===================')
 
-
-    # number = 0
     all_ssim = []
-
     start_time = time.time()
-
-
+    
     for img_name in image_files:
-
+        # 根据dataset的目录结构读取相应文件
         cloth_img_path = os.path.join(args.image_root_path, "cloth", img_name)
         warp_img_path = os.path.join(args.image_root_path, "warp_mask", img_name)
         t_img_path = os.path.join(args.image_root_path, "image", img_name)
@@ -187,24 +184,32 @@ def inference(args, rank, select_test_datas):
         clip_processor_warp_img = clip_image_processor(images=warp_img, return_tensors="pt").pixel_values
         warp_img_embed = (image_encoder_g(clip_processor_warp_img.to(device)).image_embeds).unsqueeze(1)
 
+        # 如果需要，可以准备姿态图
+        pose_img = Image.new("RGB", (args.img_width * 2, args.img_height))
+        pose_img.paste(cloth_img, (0, 0))  # 这里简化了，实际应该使用姿态图像
+        pose_img.paste(t_img, (args.img_width, 0))
+        cond_pose = torch.unsqueeze(img_transform(pose_img), 0)
+        pose_f = pose_proj(cond_pose.to(device=device))
+
+        # 运行推理
         output = pipe(
-                height=args.img_height,
-                width=args.img_weigh*2,
-                guidance_rescale=0.0,
-                vae_image=vae_image,
-                s_img_proj_f=cloth_img_proj_f,
-                pred_t_img_embed = warp_img_embed,
-                num_images_per_prompt=4,
-                guidance_scale=args.guidance_scale,
-                generator=generator,
-                num_inference_steps=args.num_inference_steps,
-            )
+            height=args.img_height,
+            width=args.img_width*2,
+            guidance_rescale=0.0,
+            vae_image=vae_image,
+            s_img_proj_f=cloth_img_proj_f,
+            st_pose_f=pose_f,
+            pred_t_img_embed=warp_img_embed,
+            num_images_per_prompt=4,
+            guidance_scale=args.guidance_scale,
+            generator=generator,
+            num_inference_steps=args.num_inference_steps,
+        )
 
-
+        # 创建可视化图像
         vis_st_image = Image.new("RGB", (args.img_width*2, args.img_height))
         vis_st_image.paste(cloth_img, (0, 0))
         vis_st_image.paste(t_img, (args.img_width, 0))
-
 
         if args.calculate_metrics:
             ssim_values = []
@@ -230,58 +235,8 @@ def inference(args, rank, select_test_datas):
             grid = image_grid(output.images, 1, 5)
             grid.save(os.path.join(save_dir, img_name))
 
-    end_time =time.time()
-    print(end_time-start_time)
+    end_time = time.time()
+    print(f"推理时间: {end_time-start_time:.2f}秒")
 
-    if args.calculate_metrics:
-        print(sum(all_ssim)/ len(all_ssim))
-
-
-if __name__ == "__main__":
-
-    parser = argparse.ArgumentParser(description="Simple example of an inpaint model of stage2 script.")
-    parser.add_argument("--pretrained_model_name_or_path", type=str,
-                        default="/mnt/aigc_cq/private/feishen/weights/stable-diffusion-2-1-base",
-                        help="Path to pretrained model or model identifier from huggingface.co/models.", )
-    parser.add_argument("--image_encoder_g_path",type=str,default="./OpenCLIP-ViT-H-14",
-        help="Path to pretrained model or model identifier from huggingface.co/models.",)
-    parser.add_argument("--image_encoder_p_path",type=str,default="./dinov2-giant",
-        help="Path to pretrained model or model identifier from huggingface.co/models.",)
-    parser.add_argument("--img_path", type=str,default="./datasets/deepfashing/train_all_png/", help="image path", )
-    parser.add_argument("--pose_path", type=str,default="./datasets/deepfashing/openpose_all_img/",help="pose path", )
-    # parser.add_argument("--json_path", type=str,default="./datasets/deepfashing/test_data.json",help="json path", )
-    parser.add_argument("--target_embed_path", type=str,default="./save_data/stage1/guidancescale0_seed42_numsteps20/",help="t_img_embed path", )
-    # parser.add_argument("--save_path", type=str, default="./save_data/stage2", help="save path", )
-    parser.add_argument("--guidance_scale",type=int,default=2.0,help="guidance_scale",)
-    parser.add_argument("--seed_number",type=int,default=42,help="seed number",)
-    parser.add_argument("--num_inference_steps",type=int,default=20,help="num_inference_steps",)
-    parser.add_argument("--img_width",type=int,default=512,help="image width",)
-    parser.add_argument("--img_height",type=int,default=512,help="image height",)
-    parser.add_argument("--calculate_metrics",  action='store_true', help="caculate ssim", )
-    # parser.add_argument("--weights_name", type=str, default="./Checkpoints/stage2_checkpoints/512",help="weights number", )
-    
-    
-    parser.add_argument("--step_number", type=str, default="12000", help="Step number of the model in Hugging Face repo (e.g., 12000)")
-    
-    args = parser.parse_args()
-    print(args)
-
-    num_devices = torch.cuda.device_count()
-    print("using {} num_processes inference".format(num_devices))
-
-    image_files = get_image_files(args.img_path)
-
-    inference(args, 0, image_files)
-
-
-    # processes = []
-    # for rank in range(num_devices):
-    #     p = mp.Process(target=inference, args=(args, rank, data_list[rank] ))
-    #     processes.append(p)
-    #     p.start()
-
-    # for rank, p in enumerate(processes):
-    #     p.join()
-
-
-
+    if args.calculate_metrics and all_ssim:
+        avg_ssim = sum(all_ssim) / len(
