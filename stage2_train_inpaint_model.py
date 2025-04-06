@@ -377,13 +377,14 @@ def main():
                         mode='bilinear',  # 也可以使用'nearest'、'bicubic'等
                         align_corners=False
                     )
-                    mask0 = (mask0 > 0).float()
+                    mask0 = (mask0 > 0).to(dtype=weight_dtype)
 
                     # mask
                     mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     # mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     mask = torch.cat([mask1, mask0], dim=3)
-                    mask_np = mask.detach().cpu().numpy()
+                    mask_np = mask.detach().cpu().to(torch.float32).numpy()
+
                     sample_mask = mask_np[0, 0]
                     plt.figure(figsize=(12, 5))
 
