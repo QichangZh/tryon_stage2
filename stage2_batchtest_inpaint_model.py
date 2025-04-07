@@ -211,7 +211,7 @@ def inference(args):
     image_proj_model_p = ImageProjModel_p(in_dim=1536, hidden_dim=768, out_dim=1024).to(device).eval()
 
     # 从Hugging Face Hub下载检查点
-    repo_id = "bailuyucha/stage2"
+    repo_id = "bailuyucha/fix_stage2"
     filename = f"{args.step_number}/mp_rank_00_model_states.pt"
     from huggingface_hub import hf_hub_download
     print(f"正在从 {repo_id} 下载检查点，文件：{filename}")
@@ -287,9 +287,20 @@ def inference(args):
 
         # 处理掩码
         # mask_tensor = mask_img.unsqueeze(0)
-        mask0 = vae.encode(mask_img).latent_dist.sample()
-        mask0 = mask0 * vae.config.scaling_factor
-        mask0 = mask0[:, :1, :, :].to(dtype=torch.float32)  # 只保留第一个通道
+        # mask0 = vae.encode(mask_img).latent_dist.sample()
+        # mask0 = mask0 * vae.config.scaling_factor
+        # mask0 = mask0[:, :1, :, :].to(dtype=torch.float32)  # 只保留第一个通道
+
+        mask0 = mask_img.to(dtype=torch.float32)
+        mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
+        # 使用插值调整mask0的大小
+        mask0 = F.interpolate(
+            mask0,
+            size=(int(args.img_height / 8), int(args.img_width / 8)),
+            mode='bilinear',  # 也可以使用'nearest'、'bicubic'等
+            align_corners=False
+        )
+        mask0 = (mask0 > 0).to(dtype=torch.float32)
 
         # 创建完整掩码
         batch_size = mask_img.shape[0] 
@@ -393,7 +404,7 @@ if __name__ == "__main__":
     parser.add_argument("--image_encoder_p_path", type=str, default="facebook/dinov2-giant",
                         help="预训练模型路径或huggingface.co/models中的模型标识符")
     parser.add_argument("--img_path", type=str, default="/root/autodl-tmp/data/test", help="图像路径")
-    parser.add_argument("--save_path", type=str, default="./logs/view_stage2/384_512", help="保存路径")
+    parser.add_argument("--save_path", type=str, default="./logs/view_stage2/384_512_fix", help="保存路径")
     parser.add_argument("--guidance_scale", type=float, default=2.0, help="引导尺度")
     parser.add_argument("--seed_number", type=int, default=42, help="随机种子")
     parser.add_argument("--num_inference_steps", type=int, default=20, help="推理步数")
@@ -401,7 +412,7 @@ if __name__ == "__main__":
     parser.add_argument("--img_height", type=int, default=512, help="图像高度")
     parser.add_argument("--calculate_metrics", action='store_true', help="计算SSIM指标")
     parser.add_argument("--step_number", type=str, default="30000", help="Hugging Face仓库中的模型步数（例如12000）")
-    parser.add_argument("--batch_size", type=int, default=4, help="批处理大小（推理时通常为1）")
+    parser.add_argument("--batch_size", type=int, default=1, help="批处理大小（推理时通常为1）")
     parser.add_argument("--num_workers", type=int, default=4, help="DataLoader工作线程数")
     
     args = parser.parse_args()

@@ -368,6 +368,8 @@ def main():
                     masked_latents = vae.encode(batch["vae_source_mask_image"].to(dtype=weight_dtype)).latent_dist.sample()
                     masked_latents = masked_latents * vae.config.scaling_factor
 
+
+                    #方法一
                     mask0 = batch["vae_mask_img"].to(dtype=weight_dtype)
                     mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
                     # 使用插值调整mask0的大小
@@ -379,21 +381,26 @@ def main():
                     )
                     mask0 = (mask0 > 0).to(dtype=weight_dtype)
 
+                    #方法 二
+                    # mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
+                    # mask0 = mask0 * vae.config.scaling_factor
+                    # mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
+
                     # mask
                     mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     # mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     mask = torch.cat([mask1, mask0], dim=3)
-                    mask_np = mask.detach().cpu().to(torch.float32).numpy()
+                    # mask_np = mask.detach().cpu().to(torch.float32).numpy()
 
-                    sample_mask = mask_np[0, 0]
-                    plt.figure(figsize=(12, 5))
+                    # sample_mask = mask_np[0, 0]
+                    # plt.figure(figsize=(12, 5))
 
-                    # 显示整个掩码
-                    plt.imshow(sample_mask, cmap='gray')
-                    plt.colorbar()
-                    plt.title('Complete Mask')
-                    plt.savefig('complete_mask.png')
-
+                    # # 显示整个掩码
+                    # plt.imshow(sample_mask, cmap='gray')
+                    # plt.colorbar()
+                    # plt.title('Complete Mask')
+                    # plt.savefig('vae_complete_mask.png')
+                    # plt.close(fig)
 
 
                     # Get the image embedding for conditioning
@@ -464,52 +471,6 @@ def main():
                     checkpoint_model(
                         args.output_dir, global_steps, sd_model, epoch, global_steps
                     )
-
-                # if global_steps % 50 == 0:  # 每50步验证一次
-                #     # 确保只在主进程进行验证和记录
-                #     if accelerator.is_main_process:
-                #         logger.info(f"Starting validation at step {global_steps}...")
-                #         torch.cuda.empty_cache()
-                #         val_loss, metrics = validate_and_evaluate(
-                #             sd_model, 
-                #             val_dataloader, 
-                #             vae,
-                #             accelerator, 
-                #             global_steps,
-                #             weight_dtype,
-                #             image_encoder_p,
-                #             image_encoder_g,
-                #             args
-                #         )
-                #         logs.update({
-                #             "val_loss": val_loss,
-                #             "LPIPS": metrics["lpips"],
-                #             "SSIM": metrics["ssim"],
-                #             "FID": metrics["fid"],
-                #             "KID": metrics["kid"]
-                #         })
-                #         logger.info(f"Step {global_steps}: Validation Loss: {val_loss}")
-
-                #         # 在这里添加保存metrics的代码
-                #         metrics_log_dir = os.path.join(args.output_dir, 'metrics_log')
-                #         os.makedirs(metrics_log_dir, exist_ok=True)
-                        
-                #         txt_path = os.path.join(metrics_log_dir, 'evaluation_metrics.txt')
-                        
-                #         with open(txt_path, 'a') as f:
-                #             f.write(f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')} "
-                #                     f"step-{global_steps} "
-                #                     f"lpips-{metrics['lpips']:.6f} "
-                #                     f"ssim-{metrics['ssim']:.6f} "
-                #                     f"fid-{metrics['fid']:.6f} "
-                #                     f"kid-{metrics['kid']:.6f}\n")
-
-                #         logger.info(f"Metrics saved to {txt_path}")
-                    
-                #     # 等待所有进程完成验证
-                #     accelerator.wait_for_everyone()
-
-
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
 
