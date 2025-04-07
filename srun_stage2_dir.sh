@@ -7,11 +7,11 @@ accelerate launch \
     --pretrained_model_name_or_path="stabilityai/stable-diffusion-2-1-base" \
     --image_encoder_p_path='facebook/dinov2-giant' \
     --image_encoder_g_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
-    --image_root_path="/root/autodl-tmp/data/test"  \
+    --image_root_path="/home/y/yuansui/data/VTON/train"  \
     --img_height=512  \
     --img_width=384   \
     --learning_rate=1e-5 \
-    --train_batch_size=1 \
+    --train_batch_size=16 \
     --val_batch_size=32 \
     --max_train_steps=30010 \
     --gradient_accumulation_steps=2 \
@@ -21,4 +21,4 @@ accelerate launch \
     --lr_warmup_steps 5000  \
     --seed 42
 
-# /home/y/yuansui/data/VTON/train
+#  /root/autodl-tmp/data/test
