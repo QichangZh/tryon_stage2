@@ -6,6 +6,6 @@ python3  stage2_batchtest_inpaint_model.py \
  --image_encoder_p_path='facebook/dinov2-giant' \
  --batch_size=1 \
  --img_path='/root/autodl-tmp/data/test' \
- --save_path="./logs/view_stage2/384_512_fix" \
- --step_number=30000 \
+ --save_path="./logs/view_stage2/384_512_long_mask" \
+ --step_number=80000 \
  --calculate_metrics

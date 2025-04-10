@@ -235,6 +235,7 @@ def main():
         sampler=train_sampler,
         collate_fn=InpaintCollate_fn,
         batch_size=args.train_batch_size,
+        drop_last=True,
         num_workers=2,)
 
     # Scheduler and math around the number of training steps.
@@ -380,7 +381,7 @@ def main():
                         align_corners=False
                     )
                     mask0 = (mask0 > 0).to(dtype=weight_dtype)
-                    mask0 = 1 - mask0  # 将0变为1，1变为0
+                    # mask0 = 1 - mask0  # 将0变为1，1变为0
 
                     #方法 二
                     # mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
