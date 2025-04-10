@@ -2,8 +2,8 @@
 #SBATCH --job-name=accelerate_stage2       # 修改为stage2
 #SBATCH --nodes=1                          # 需要 2 个节点
 #SBATCH --ntasks-per-node=1                # 每个节点启动 2 个任务（与GPU数量匹配）
-#SBATCH --cpus-per-task=60                 # 每个任务使用 30 个 CPU 核心
-#SBATCH --mem=400G                         # 每个节点分配 400GB 内存
+#SBATCH --cpus-per-task=30                 # 每个任务使用 30 个 CPU 核心
+#SBATCH --mem=200G                         # 每个节点分配 400GB 内存
 #SBATCH --gres=gpu:h100-47:1               # 每个节点分配 2 块 GPU
 #SBATCH --time=3-01:00:00                  # 最长运行时间
 #SBATCH --partition=gpu-long
@@ -20,7 +20,7 @@ srun accelerate launch \
     --num_machines 1 \
     --num_processes 1 \
     --use_deepspeed \
-    --mixed_precision="bf16" \
+    --mixed_precision="fp16" \
     stage2_train_inpaint_model.py \
     --pretrained_model_name_or_path="stabilityai/stable-diffusion-2-1-base" \
     --image_encoder_p_path='facebook/dinov2-giant' \
@@ -32,8 +32,8 @@ srun accelerate launch \
     --train_batch_size=16 \
     --val_batch_size=32 \
     --max_train_steps=30010 \
-    --gradient_accumulation_steps=2 \
-    --mixed_precision="bf16" \
+    --gradient_accumulation_steps=12 \
+    --mixed_precision="fp16" \
     --checkpointing_steps=3000  \
     --noise_offset=0.1 \
     --lr_warmup_steps 5000  \
