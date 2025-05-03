@@ -371,41 +371,41 @@ def main():
 
 
                     #方法一
-                    mask0 = batch["vae_mask_img"].to(dtype=weight_dtype)
-                    mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
-                    # 使用插值调整mask0的大小
-                    mask0 = F.interpolate(
-                        mask0,
-                        size=(int(args.img_height / 8), int(args.img_width / 8)),
-                        mode='bilinear',  # 也可以使用'nearest'、'bicubic'等
-                        align_corners=False
-                    )
-                    mask0 = (mask0 > 0).to(dtype=weight_dtype)
+                    # mask0 = batch["vae_mask_img"].to(dtype=weight_dtype)
+                    # mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
+                    # # 使用插值调整mask0的大小
+                    # mask0 = F.interpolate(
+                    #     mask0,
+                    #     size=(int(args.img_height / 8), int(args.img_width / 8)),
+                    #     mode='bilinear',  # 也可以使用'nearest'、'bicubic'等
+                    #     align_corners=False
+                    # )
+                    # mask0 = (mask0 > 0).to(dtype=weight_dtype)
                     # mask0 = 1 - mask0  # 将0变为1，1变为0
 
                     #方法 二
-                    # mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
-                    # mask0 = mask0 * vae.config.scaling_factor
-                    # mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
+                    mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
+                    mask0 = mask0 * vae.config.scaling_factor
+                    mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
 
                     # mask
-                    mask1 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
+                    mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     # mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     mask = torch.cat([mask1, mask0], dim=3)
 
 
                     #可视化mask图像
-                    # mask_np = mask.detach().cpu().to(torch.float32).numpy()
+                    mask_np = mask.detach().cpu().to(torch.float32).numpy()
 
-                    # sample_mask = mask_np[0, 0]
-                    # plt.figure(figsize=(12, 5))
+                    sample_mask = mask_np[0, 0]
+                    plt.figure(figsize=(12, 5))
 
                     # # 显示整个掩码
-                    # plt.imshow(sample_mask, cmap='gray')
-                    # plt.colorbar()
-                    # plt.title('Complete Mask')
-                    # plt.savefig('complete_mask.png')
-                    # plt.close()
+                    plt.imshow(sample_mask, cmap='gray')
+                    plt.colorbar()
+                    plt.title('Complete Mask')
+                    plt.savefig('vae_complete_mask.png')
+                    plt.close()
 
 
                     # Get the image embedding for conditioning

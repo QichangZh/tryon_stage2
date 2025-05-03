@@ -2,13 +2,6 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Python Debugger: Current File",
-            "type": "debugpy",
-            "request": "launch",
-            "program": "${file}",
-            "console": "integratedTerminal"
-        },
-        {
             "name": "Python 调试程序: 当前文件",
             "type": "debugpy",
             "request": "launch",
@@ -16,7 +9,7 @@
             "args": [
                 // "--pretrained_model_name_or_path=kandinsky-community/kandinsky-2-2-prior",
                 // "--image_encoder_path=laion/CLIP-ViT-H-14-laion2B-s32B-b79K",
-                // "--img_path=./data/train_lst_256_png",
+                // "--img_path=/root/autodl-tmp/data/test",
                 // "--output_dir=output_dir",
                 // "--img_height=256",
                 // "--img_width=256",

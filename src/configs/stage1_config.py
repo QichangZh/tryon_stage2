@@ -143,7 +143,7 @@ parser.add_argument(
 parser.add_argument(
     "--resume_from_checkpoint",
     type=str,
-    default="output_dir",
+    default="",
     help="If the training should continue from a checkpoint folder.",
 )
 parser.add_argument(
