@@ -148,13 +148,14 @@ def main():
         prior.train()
         for batch in loader:
             with torch.no_grad():
-                cloth = image_encoder(batch["clip_cloth_img"].to(accelerator.device, dtype=dtype)).image_embeds  # (bs,E)
+                cloth = image_encoder(batch["clip_cloth_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)   # (bs,E)
                 agn   = image_encoder(batch["clip_agnostic_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)  # (bs,1,E)
-                tgt   = image_encoder(batch["clip_image_img"].to(accelerator.device, dtype=dtype)).image_embeds                 # (bs,E)
+                img   = image_encoder(batch["clip_image_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)   # (bs,E)
+                tgt   = image_encoder(batch["clip_warp_mask_img"].to(accelerator.device, dtype=dtype)).image_embeds   # (bs,E) target image
 
             with accelerator.accumulate(prior):
-                pred = prior(proj_embedding=cloth, encoder_hidden_states=agn).predicted_image_embedding
-                loss = F.mse_loss(pred.float(), tgt.float(), reduction="mean")
+                pred = prior(proj_embedding=cloth, encoder_hidden_states=agn, encoder_hidden_states1=img).predicted_image_embedding
+                loss = F.mse_loss(pred.float(), tgt.float(), reduction="mean")  # target is clip_warp_mask_img
                 accelerator.backward(loss)
                 optimizer.step(); lr_scheduler.step(); optimizer.zero_grad()
 
@@ -170,6 +171,7 @@ def main():
     if accelerator.is_main_process:
         prior.save_pretrained(os.path.join(args.output_dir, "prior_pure"))
     accelerator.end_training()
+
 
 
 if __name__ == "__main__":

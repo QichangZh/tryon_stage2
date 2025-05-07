@@ -74,6 +74,7 @@ class Stage1_PriorTransformerPure(ModelMixin, ConfigMixin):
         self.clip_mean = torch.tensor(-0.016)
         self.clip_std = torch.tensor(0.415)
 
+
     # ---------------------------------------------------------------------
     # optional helpers (LoRA / attention processor)
     # ---------------------------------------------------------------------
@@ -99,28 +100,35 @@ class Stage1_PriorTransformerPure(ModelMixin, ConfigMixin):
     # ---------------------------------------------------------------------
     def forward(
         self,
-        proj_embedding: torch.FloatTensor,                # (bs, E)
-        encoder_hidden_states: torch.FloatTensor,         # (bs, N, E)
+        proj_embedding: torch.FloatTensor,                # (bs, 1, E)
+        encoder_hidden_states: torch.FloatTensor,         # (bs, 1, E)
         encoder_hidden_states1: Optional[torch.FloatTensor] = None,  # optional extra conds
         attention_mask: Optional[torch.BoolTensor] = None,
         return_dict: bool = True,
     ):
         bs = proj_embedding.shape[0]
-        inner_proj = self.embedding_proj(proj_embedding).unsqueeze(1)  # (bs,1,D)
-        cond1 = self.encoder_hidden_states_proj(encoder_hidden_states)  # (bs,N,D)
+        inner_proj = self.embedding_proj(proj_embedding) # (bs, 1, D)
+        cond1 = self.encoder_hidden_states_proj(encoder_hidden_states)  # (bs, N, D)
+
+        # Print shapes for debugging
+        print(f"inner_proj shape: {inner_proj.shape}")
+        print(f"cond1 shape: {cond1.shape}")
 
         tokens = [cond1]
         if encoder_hidden_states1 is not None:
             cond2 = self.encoder_hidden_states_proj1(encoder_hidden_states1)
+            print(f"cond2 shape: {cond2.shape}")
             tokens.append(cond2)
         tokens.append(inner_proj)
 
-        prd_tok = self.prd_embedding.to(cond1.dtype).expand(bs, -1, -1)
+        prd_tok = self.prd_embedding.to(cond1.dtype).expand(bs, -1, -1)  # (bs, 1, D)
+        print(f"prd_tok shape: {prd_tok.shape}")
         tokens.append(prd_tok)
 
         hidden_states = torch.cat(tokens, dim=1)  # (bs, seq, D)
+        print(f"hidden_states shape after concat: {hidden_states.shape}")
 
-        # add(positional_embedding) — broadcast / pad as needed
+        # add positional embedding
         pe = F.pad(
             self.positional_embedding,
             (0, 0, 0, hidden_states.size(1) - self.positional_embedding.size(1)),
@@ -128,7 +136,7 @@ class Stage1_PriorTransformerPure(ModelMixin, ConfigMixin):
         )
         hidden_states = hidden_states + pe.to(hidden_states.dtype)
 
-        # optional mask → (-10000) for tokens to ignore
+        # optional mask
         if attention_mask is not None:
             attention_mask = (1 - attention_mask.to(hidden_states.dtype)) * -10000.0
             attention_mask = attention_mask[:, None, None, :]
@@ -146,6 +154,6 @@ class Stage1_PriorTransformerPure(ModelMixin, ConfigMixin):
             return (pred_embed,)
         return PriorTransformerOutput(predicted_image_embedding=pred_embed)
 
-    # (optional) de‑norm helper ------------------------------------------------
+    
     def post_process_latents(self, prior_latents: torch.FloatTensor):
         return (prior_latents * self.clip_std) + self.clip_mean

@@ -90,10 +90,11 @@ class SDModel(torch.nn.Module):
         extra_image_embeddings_p = self.image_proj_model_p(simg_f_p)
         extra_image_embeddings_g = timg_f_g
 
-        encoder_image_hidden_states = torch.cat([extra_image_embeddings_p ,extra_image_embeddings_g], dim=1)
+        # encoder_image_hidden_states = torch.cat([extra_image_embeddings_p ,extra_image_embeddings_g], dim=1)
         # pose_cond = self.pose_proj(pose_f)
 
-        pred_noise = self.unet(noisy_latents, timesteps, class_labels=timg_f_g, encoder_hidden_states=encoder_image_hidden_states).sample
+        # pred_noise = self.unet(noisy_latents, timesteps, class_labels=timg_f_g, encoder_hidden_states=encoder_image_hidden_states).sample
+        pred_noise = self.unet(noisy_latents, timesteps, class_labels=timg_f_g, ).sample
         return pred_noise
 
 
