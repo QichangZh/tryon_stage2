@@ -87,14 +87,16 @@ class Stage2_InapintUNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditio
         act_fn: str = "silu",
         norm_num_groups: Optional[int] = 32,
         norm_eps: float = 1e-5,
-        cross_attention_dim: Union[int, Tuple[int]] = 1280,
+        # cross_attention_dim: Union[int, Tuple[int]] = 1280,
+        cross_attention_dim: Union[int, Tuple[int]] = 0,  # 设置为0或者更合适的默认值
         encoder_hid_dim: Optional[int] = None,
         encoder_hid_dim_type: Optional[str] = None,
         attention_head_dim: Union[int, Tuple[int]] = 8,
         num_attention_heads: Optional[Union[int, Tuple[int]]] = None,
         dual_cross_attention: bool = False,
         use_linear_projection: bool = False,
-        class_embed_type: Optional[str] = None,
+        # class_embed_type: Optional[str] = None,
+        class_embed_type: Optional[str] = None,  # 设置为None
         addition_embed_type: Optional[str] = None,
         num_class_embeds: Optional[int] = None,
         upcast_attention: bool = False,
@@ -580,8 +582,8 @@ class Stage2_InapintUNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditio
         self,
         sample: torch.Tensor,
         timestep: Union[torch.Tensor, float, int],
-        encoder_hidden_states: torch.Tensor,
-        class_labels: Optional[torch.Tensor] = None,
+        # encoder_hidden_states: torch.Tensor,
+        # class_labels: Optional[torch.Tensor] = None,
         timestep_cond: Optional[torch.Tensor] = None,
         attention_mask: Optional[torch.Tensor] = None,
         cross_attention_kwargs: Optional[Dict[str, Any]] = None,
@@ -750,10 +752,10 @@ class Stage2_InapintUNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditio
                 sample, res_samples = downsample_block(
                     hidden_states=sample,
                     temb=emb,
-                    encoder_hidden_states=encoder_hidden_states,
-                    attention_mask=attention_mask,
-                    cross_attention_kwargs=cross_attention_kwargs,
-                    encoder_attention_mask=encoder_attention_mask,
+                    # encoder_hidden_states=encoder_hidden_states,
+                    # attention_mask=attention_mask,
+                    # cross_attention_kwargs=cross_attention_kwargs,
+                    # encoder_attention_mask=encoder_attention_mask,
                 )
             else:
                 sample, res_samples = downsample_block(hidden_states=sample, temb=emb)
@@ -776,10 +778,10 @@ class Stage2_InapintUNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditio
             sample = self.mid_block(
                 sample,
                 emb,
-                encoder_hidden_states=encoder_hidden_states,
-                attention_mask=attention_mask,
-                cross_attention_kwargs=cross_attention_kwargs,
-                encoder_attention_mask=encoder_attention_mask,
+                # encoder_hidden_states=encoder_hidden_states,
+                # attention_mask=attention_mask,
+                # cross_attention_kwargs=cross_attention_kwargs,
+                # encoder_attention_mask=encoder_attention_mask,
             )
 
         if mid_block_additional_residual is not None:
@@ -802,11 +804,11 @@ class Stage2_InapintUNet2DConditionModel(ModelMixin, ConfigMixin, UNet2DConditio
                     hidden_states=sample,
                     temb=emb,
                     res_hidden_states_tuple=res_samples,
-                    encoder_hidden_states=encoder_hidden_states,
-                    cross_attention_kwargs=cross_attention_kwargs,
+                    # encoder_hidden_states=encoder_hidden_states,
+                    # cross_attention_kwargs=cross_attention_kwargs,
                     upsample_size=upsample_size,
-                    attention_mask=attention_mask,
-                    encoder_attention_mask=encoder_attention_mask,
+                    # attention_mask=attention_mask,
+                    # encoder_attention_mask=encoder_attention_mask,
                 )
             else:
                 sample = upsample_block(

@@ -14,8 +14,7 @@ from accelerate.utils import ProjectConfiguration, set_seed
 
 from tqdm.auto import tqdm
 from src.configs.stage2_config import args
-from test_tools import validate_and_evaluate
-from datetime import datetime
+
 import diffusers
 from diffusers import (
     AutoencoderKL,
@@ -23,12 +22,11 @@ from diffusers import (
 )
 from diffusers.optimization import get_scheduler
 from diffusers.utils import check_min_version, is_wandb_available
-from src.dataset.stage2_dataset import InpaintDataset, InpaintCollate_fn
+from src.dataset.stage2_dataset_pre import InpaintDataset, InpaintCollate_fn
 from transformers import CLIPVisionModelWithProjection
 from transformers import Dinov2Model
 from src.models.stage2_inpaint_unet_2d_condition import Stage2_InapintUNet2DConditionModel
-import matplotlib.pyplot as plt
-# from save_load_ckpt import load_training_checkpoint, checkpoint_model
+
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.18.0.dev0")
@@ -76,33 +74,34 @@ class SDModel(torch.nn.Module):
     """SD model with image prompt"""
     def __init__(self, unet) -> None:
         super().__init__()
-        # self.image_proj_model_p = ImageProjModel_p(in_dim=1536, hidden_dim=768, out_dim=1024)
+        self.image_proj_model_p = ImageProjModel_p(in_dim=1536, hidden_dim=768, out_dim=1024)
 
         self.unet = unet
-        # self.pose_proj = ControlNetConditioningEmbedding(
-        #     conditioning_embedding_channels=320,
-        #     block_out_channels=(16, 32, 96, 256),
-        #     conditioning_channels=3)
+        self.pose_proj = ControlNetConditioningEmbedding(
+            conditioning_embedding_channels=320,
+            block_out_channels=(16, 32, 96, 256),
+            conditioning_channels=3)
 
 
-    # def forward(self, noisy_latents, timesteps, simg_f_p, timg_f_g):
-    def forward(self, noisy_latents, timesteps):
-        # extra_image_embeddings_p = self.image_proj_model_p(simg_f_p)
-        # extra_image_embeddings_g = timg_f_g
+    def forward(self, noisy_latents, timesteps, simg_f_p, timg_f_g, pose_f):
 
-        # encoder_image_hidden_states = torch.cat([extra_image_embeddings_p ,extra_image_embeddings_g], dim=1)
-        # pose_cond = self.pose_proj(pose_f)
+        extra_image_embeddings_p = self.image_proj_model_p(simg_f_p)
+        extra_image_embeddings_g = timg_f_g
 
-        # pred_noise = self.unet(noisy_latents, timesteps, class_labels=timg_f_g, encoder_hidden_states=encoder_image_hidden_states).sample
-        pred_noise = self.unet(noisy_latents, timesteps).sample
+        encoder_image_hidden_states = torch.cat([extra_image_embeddings_p ,extra_image_embeddings_g], dim=1)
+        pose_cond = self.pose_proj(pose_f)
+
+        pred_noise = self.unet(noisy_latents, timesteps, class_labels=timg_f_g, encoder_hidden_states=encoder_image_hidden_states,my_pose_cond=pose_cond).sample
         return pred_noise
+
+
 
 
 def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
     """Utility function for checkpointing model + optimizer dictionaries
     The main purpose for this is to be able to resume training from that instant again
     """
-    checkpoint_state_dict= torch.load(load_dir, map_location="cpu", weights_only=False)
+    checkpoint_state_dict= torch.load(load_dir, map_location="cpu")
 
 
     print(checkpoint_state_dict.keys())
@@ -176,23 +175,20 @@ def main():
     noise_scheduler = DDPMScheduler.from_pretrained(args.pretrained_model_name_or_path, subfolder="scheduler")
 
     # Load model
-    # image_encoder_p = Dinov2Model.from_pretrained(args.image_encoder_p_path)
-    # image_encoder_g = CLIPVisionModelWithProjection.from_pretrained(args.image_encoder_g_path)
+    image_encoder_p = Dinov2Model.from_pretrained(args.image_encoder_p_path)
+    image_encoder_g = CLIPVisionModelWithProjection.from_pretrained(args.image_encoder_g_path)
 
     vae = AutoencoderKL.from_pretrained(args.pretrained_model_name_or_path, subfolder="vae")
 
     unet = Stage2_InapintUNet2DConditionModel.from_pretrained(args.pretrained_model_name_or_path, subfolder="unet",
-                                                   in_channels=9, 
-                                                #    class_embed_type="projection" ,
-                                                #    projection_class_embeddings_input_dim=1024,
+                                                   in_channels=9, class_embed_type="projection" ,projection_class_embeddings_input_dim=1024,
                                                   low_cpu_mem_usage=False, ignore_mismatched_sizes=True)
 
-    # image_encoder_p.requires_grad_(False)
-    # image_encoder_g.requires_grad_(False)
+    image_encoder_p.requires_grad_(False)
+    image_encoder_g.requires_grad_(False)
     vae.requires_grad_(False)
 
     sd_model = SDModel(unet=unet)
-
     sd_model.train()
 
 
@@ -224,6 +220,7 @@ def main():
     )
 
     dataset = InpaintDataset(
+        args.json_path,
         args.image_root_path,
         size=(args.img_width, args.img_height), # w h
         imgp_drop_rate=0.1,
@@ -238,7 +235,6 @@ def main():
         sampler=train_sampler,
         collate_fn=InpaintCollate_fn,
         batch_size=args.train_batch_size,
-        drop_last=True,
         num_workers=2,)
 
     # Scheduler and math around the number of training steps.
@@ -257,42 +253,8 @@ def main():
         power=args.lr_power,
     )
 
-    # 创建验证数据集
-    val_dataset = InpaintDataset(
-        args.val_image_root_path,  # 需要在args中添加验证集路径参数
-        size=(args.img_width, args.img_height),
-        imgp_drop_rate=0.0,  # 验证时不需要dropout
-        imgg_drop_rate=0.0
-    )
-
-    # 验证集sampler
-    val_sampler = torch.utils.data.distributed.DistributedSampler(
-        val_dataset, 
-        num_replicas=accelerator.num_processes,
-        rank=accelerator.process_index,
-        shuffle=False  # 验证时不需要shuffle
-    )
-
-    # 创建验证数据加载器
-    val_dataloader = torch.utils.data.DataLoader(
-        val_dataset,
-        sampler=val_sampler,
-        collate_fn=InpaintCollate_fn,
-        batch_size=args.val_batch_size,  # 需要在args中添加验证batch size参数
-        num_workers=2,
-    )
-    # print("----------------------------------------------------val_dataloader.batch_size-------------------------------------------")
-    # print(val_dataloader.batch_size)
-    # # 准备验证dataloader
-    #  = accelerator.prepare()
-    # print("----------------------------------------------------val_dataloader.batch_size-------------------------------------------")
-    # print(val_dataloader.batch_size)
-
     # Prepare everything with our `accelerator`.
-    sd_model, optimizer, train_dataloader, lr_scheduler, val_dataloader = accelerator.prepare(sd_model, optimizer, train_dataloader, lr_scheduler, val_dataloader)
-
-    # print("----------------------------------------------------val_dataloader.batch_size-------------------------------------------")
-    # print(val_dataloader.batch_size)
+    sd_model, optimizer, train_dataloader, lr_scheduler = accelerator.prepare(sd_model, optimizer, train_dataloader, lr_scheduler)
 
     # For mixed precision training we cast the text_encoder and vae weights to half-precision
     # as these models are only used for inference, keeping weights in full precision is not required.
@@ -305,10 +267,9 @@ def main():
     # Move vae, unet and text_encoder to device and cast to weight_dtype
     vae.to(accelerator.device, dtype=weight_dtype)
     unet.to(accelerator.device, dtype=weight_dtype)
-    # image_encoder_p.to(accelerator.device, dtype=weight_dtype)
-    # image_encoder_g.to(accelerator.device, dtype=weight_dtype)
-    # sd_model = sd_model.to(dtype=weight_dtype)
-    # print(len(train_dataloader))
+    image_encoder_p.to(accelerator.device, dtype=weight_dtype)
+    image_encoder_g.to(accelerator.device, dtype=weight_dtype)
+
     # We need to recalculate our total training steps as the size of the training dataloader may have changed.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
     if overrode_max_train_steps:
@@ -316,8 +277,6 @@ def main():
     # Afterwards we recalculate our number of training epochs
     args.num_train_epochs = math.ceil(args.max_train_steps / num_update_steps_per_epoch)
 
-    if accelerator.is_main_process:
-        accelerator.init_trackers("text2image", config=vars(args))
 
 
     # Train!
@@ -341,7 +300,7 @@ def main():
     if args.resume_from_checkpoint:
         # New Code #
         # Loads the DeepSpeed checkpoint from the specified path
-        sd_model, last_epoch, last_global_step = load_training_checkpoint( #如何查看是几个进程
+        prior_model, last_epoch, last_global_step = load_training_checkpoint(
             sd_model,
             args.resume_from_checkpoint,
             **{"load_optimizer_states": True, "load_lr_scheduler_states": True},
@@ -349,9 +308,11 @@ def main():
         accelerator.print(f"Resumed from checkpoint: {args.resume_from_checkpoint}, global step: {last_global_step}")
         starting_epoch = last_epoch
         global_steps = last_global_step
+        sd_model = sd_model
     else:
         global_steps = 0
         starting_epoch = 0
+        sd_model = sd_model
 
     progress_bar = tqdm(range(global_steps, args.max_train_steps), initial=global_steps, desc="Steps",
                         # Only show the progress bar once on each machine.
@@ -372,52 +333,17 @@ def main():
                     masked_latents = vae.encode(batch["vae_source_mask_image"].to(dtype=weight_dtype)).latent_dist.sample()
                     masked_latents = masked_latents * vae.config.scaling_factor
 
-
-                    #方法一
-                    # mask0 = batch["vae_mask_img"].to(dtype=weight_dtype)
-                    # mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
-                    # # 使用插值调整mask0的大小
-                    # mask0 = F.interpolate(
-                    #     mask0,
-                    #     size=(int(args.img_height / 8), int(args.img_width / 8)),
-                    #     mode='bilinear',  # 也可以使用'nearest'、'bicubic'等
-                    #     align_corners=False
-                    # )
-                    # mask0 = (mask0 > 0).to(dtype=weight_dtype)
-                    # mask0 = 1 - mask0  # 将0变为1，1变为0
-
-                    #方法 二
-                    mask0 = vae.encode(batch["vae_mask_img"].to(dtype=weight_dtype)).latent_dist.sample()
-                    mask0 = mask0 * vae.config.scaling_factor
-                    mask0 = mask0[:, :1, :, :]  # 只保留第一个通道，形状变为[B, 1, h, w]
-
                     # mask
                     mask1 = torch.ones((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
-                    # mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
+                    mask0 = torch.zeros((bsz, 1, int(args.img_height / 8), int(args.img_width / 8))).to(accelerator.device, dtype=weight_dtype)
                     mask = torch.cat([mask1, mask0], dim=3)
-
-
-                    #可视化mask图像
-                    mask_np = mask.detach().cpu().to(torch.float32).numpy()
-
-                    sample_mask = mask_np[0, 0]
-                    plt.figure(figsize=(12, 5))
-
-                    # # 显示整个掩码
-                    plt.imshow(sample_mask, cmap='gray')
-                    plt.colorbar()
-                    plt.title('Complete Mask')
-                    plt.savefig('vae_complete_mask.png')
-                    plt.close()
-
-
                     # Get the image embedding for conditioning
-                    # cond_image_feature_p = image_encoder_p(batch["cloth_image"].to(accelerator.device, dtype=weight_dtype))
-                    # cond_image_feature_p = (cond_image_feature_p.last_hidden_state)
+                    cond_image_feature_p = image_encoder_p(batch["source_image"].to(accelerator.device, dtype=weight_dtype))
+                    cond_image_feature_p = (cond_image_feature_p.last_hidden_state)
 
 
-                    # cond_image_feature_g = image_encoder_g(batch["warp_image"].to(accelerator.device, dtype=weight_dtype), ).image_embeds
-                    # cond_image_feature_g =cond_image_feature_g.unsqueeze(1)
+                    cond_image_feature_g = image_encoder_g(batch["target_image"].to(accelerator.device, dtype=weight_dtype), ).image_embeds
+                    cond_image_feature_g =cond_image_feature_g.unsqueeze(1)
 
                 # Sample noise that we'll add to the latents
                 noise = torch.randn_like(latents)
@@ -438,17 +364,10 @@ def main():
                 # Get the text embedding for conditioning
 
 
-                # cond_pose = batch["source_target_pose"].to(dtype=weight_dtype)
-                # print("------------------------------dtype sd model--------------------------------------")
-                # print("noisy_latents: ", noisy_latents.dtype)
-                # print("timesteps: ", timesteps.dtype)
-                # print("cond_image_feature_p: ", cond_image_feature_p.dtype)
-                # print("cond_image_feature_g: ", cond_image_feature_g.dtype)
-                # # print("sd_model: ", sd_model.dtype)
-                # print("----------------------------------------------------------------------------------")
+                cond_pose = batch["source_target_pose"].to(dtype=weight_dtype)
 
                 # Predict the noise residual
-                model_pred = sd_model(noisy_latents, timesteps)
+                model_pred = sd_model(noisy_latents, timesteps, cond_image_feature_p,cond_image_feature_g, cond_pose, )
 
                 # Get the target for loss depending on the prediction type
                 if noise_scheduler.config.prediction_type == "epsilon":
@@ -479,10 +398,9 @@ def main():
                     checkpoint_model(
                         args.output_dir, global_steps, sd_model, epoch, global_steps
                     )
+
             logs = {"loss": loss.detach().item(), "lr": lr_scheduler.get_last_lr()[0]}
             progress_bar.set_postfix(**logs)
-
-            accelerator.log(logs, step=global_steps)
 
             if global_steps >= args.max_train_steps:
                 break
