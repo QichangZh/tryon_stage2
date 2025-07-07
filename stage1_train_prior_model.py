@@ -1,29 +1,58 @@
 import logging
 import os
+import pathlib
+import math
 from typing import Iterable, Optional
+
 from packaging import version
+
+import torch
 from torch import nn
 import torch.nn.functional as F
 import torch.utils.checkpoint
+
 import transformers
 import datasets
 from tqdm.auto import tqdm
+
 from accelerate import Accelerator
 from accelerate.logging import get_logger
-from accelerate.utils import set_seed, DummyOptim, DummyScheduler
-from diffusers import  DDPMScheduler
+from accelerate.utils import set_seed
+
+from diffusers.utils import check_min_version, is_xformers_available
 from diffusers.optimization import get_scheduler
+from diffusers import DDPMScheduler
 from transformers import CLIPVisionModelWithProjection
-from diffusers.utils.import_utils import is_xformers_available
-from diffusers.utils import check_min_version
+
 from src.dataset.stage1_dataset import PriorCollate_fn, PriorImageDataset
 from src.configs.stage1_config import args
 from src.models.stage1_pure_prior_transformer import Stage1_PriorTransformerPure
-logger = get_logger(__name__)
 
 # Will error if the minimal version of diffusers is not installed. Remove at your own risks.
 check_min_version("0.18.0.dev0")
 
+logger = get_logger(__name__)
+
+# ------------------------------------------------------------------ checkpoint helpers (copied from stage‑3 style)
+
+def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
+    """Utility function for checkpointing model + optimizer dictionaries
+    The main purpose for this is to be able to resume training from that instant again
+    """
+    checkpoint_state_dict= torch.load(load_dir, map_location="cpu", weights_only=False)
+
+
+    print(checkpoint_state_dict.keys())
+    epoch = checkpoint_state_dict["epoch"]
+    last_global_step = checkpoint_state_dict["last_global_step"]
+    # TODO optimizer lr, and loss state
+
+    weight_dict = checkpoint_state_dict["module"]
+    new_weight_dict = {f"module.{key}": value for key, value in weight_dict.items()}
+    model.load_state_dict(new_weight_dict)
+    del checkpoint_state_dict
+
+    return model, epoch, last_global_step
 
 def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step, **kwargs):
     """Utility function for checkpointing model + optimizer dictionaries
@@ -45,32 +74,15 @@ def checkpoint_model(checkpoint_folder, ckpt_id, model, epoch, last_global_step,
     return
 
 
-def load_training_checkpoint(model, load_dir, tag=None, **kwargs):
-    """Utility function for checkpointing model + optimizer dictionaries
-    The main purpose for this is to be able to resume training from that instant again
-    """
-    checkpoint_state_dict= torch.load(load_dir, map_location="cpu")
 
-    epoch = checkpoint_state_dict["epoch"]
-    last_global_step = checkpoint_state_dict["last_global_step"]
-    # TODO optimizer lr, and loss state
+# ------------------------------------------------------------------ misc helpers
 
-    weight_dict = checkpoint_state_dict["module"]
-    new_weight_dict = {f"module.{key}": value for key, value in weight_dict.items()}
-    model.load_state_dict(new_weight_dict)
-    del checkpoint_state_dict
-
-    return model, epoch, last_global_step
-
-
-def count_model_params(model):
-    return sum([p.numel() for p in model.parameters()]) / 1e6
-
-def count_params(m):
+def count_params(m: nn.Module):
     return sum(p.numel() for p in m.parameters()) / 1e6
 
 
 def main():
+    # -------------------------------------------------------------- accelerator / logging ------------------------------------------------------------------
     logging_dir = os.path.join(args.output_dir, args.logging_dir)
     accelerator = Accelerator(
         log_with=args.report_to,
@@ -84,6 +96,7 @@ def main():
         datefmt="%m/%d/%Y %H:%M:%S",
         level=logging.INFO,
     )
+    logger.info(accelerator.state, main_process_only=False)
 
     if accelerator.is_local_main_process:
         datasets.utils.logging.set_verbosity_warning()
@@ -98,8 +111,15 @@ def main():
     if accelerator.is_main_process and args.output_dir is not None:
         os.makedirs(args.output_dir, exist_ok=True)
 
-    # ------------------------------------------------------------------ models
-    image_encoder = CLIPVisionModelWithProjection.from_pretrained(args.image_encoder_path).eval()
+    # -------------------------------------------------------------- cache dir -----------------------------------------------------------------------------
+    current_dir = pathlib.Path(__file__).parent.absolute()
+    cache_dir = os.path.join(current_dir, "cache")
+    os.makedirs(cache_dir, exist_ok=True)
+    os.environ["HF_HOME"] = cache_dir
+    os.environ["TRANSFORMERS_CACHE"] = cache_dir
+
+    # -------------------------------------------------------------- models -------------------------------------------------------------------------------
+    image_encoder = CLIPVisionModelWithProjection.from_pretrained(args.image_encoder_path, cache_dir=cache_dir).eval()
     prior = Stage1_PriorTransformerPure(
         embedding_dim=image_encoder.config.projection_dim,
         num_attention_heads=32,
@@ -117,22 +137,46 @@ def main():
         prior.enable_gradient_checkpointing()
 
     optimizer = torch.optim.AdamW(prior.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
-    lr_scheduler = torch.optim.lr_scheduler.LinearLR(optimizer, start_factor=1.0, end_factor=0.0, total_iters=args.max_train_steps)
 
-    # ------------------------------------------------------------------ data
+    # Scheduler will be (warmup -> linear decay)
+    lr_scheduler = get_scheduler(
+        name="linear",
+        optimizer=optimizer,
+        num_warmup_steps=args.lr_warmup_steps if hasattr(args, "lr_warmup_steps") else 0,
+        num_training_steps=args.max_train_steps,
+    )
+
+    # -------------------------------------------------------------- data ----------------------------------------------------------------------------------
     dataset = PriorImageDataset(
         image_root_path=args.img_path,
         size=(args.img_width, args.img_height),
         s_img_drop_rate=0.1,
-        s_pose_drop_rate=0.1,
-        t_pose_drop_rate=0.1,
+        t_img_drop_rate=0.1,
+        s_agnostic_drop_rate=0.1,
     )
-    sampler = torch.utils.data.distributed.DistributedSampler(dataset, num_replicas=accelerator.num_processes, rank=accelerator.process_index, shuffle=True)
-    loader = torch.utils.data.DataLoader(dataset, sampler=sampler, collate_fn=PriorCollate_fn, batch_size=args.train_batch_size, num_workers=8, pin_memory=True)
+    sampler = torch.utils.data.distributed.DistributedSampler(
+        dataset,
+        num_replicas=accelerator.num_processes,
+        rank=accelerator.process_index,
+        shuffle=True,
+    )
 
-    prior, optimizer, lr_scheduler = accelerator.prepare(prior, optimizer, lr_scheduler)
+    loader = torch.utils.data.DataLoader(
+        dataset,
+        sampler=sampler,
+        collate_fn=PriorCollate_fn,
+        batch_size=args.train_batch_size,
+        num_workers=8,
+        pin_memory=True,
+    )
 
-    dtype = torch.bfloat16 if accelerator.mixed_precision == "bf16" else (torch.float16 if accelerator.mixed_precision == "fp16" else torch.float32)
+    # Prepare modules & dataloader
+    prior, optimizer, lr_scheduler, loader = accelerator.prepare(prior, optimizer, lr_scheduler, loader)
+
+    dtype = (
+        torch.bfloat16 if accelerator.mixed_precision == "bf16" else (
+            torch.float16 if accelerator.mixed_precision == "fp16" else torch.float32)
+    )
     image_encoder.to(accelerator.device, dtype=dtype)
 
     if accelerator.is_main_process:
@@ -141,37 +185,69 @@ def main():
     logger.info(f"Model params — Prior: {count_params(prior):.2f}M  ·  ImageEncoder: {count_params(image_encoder):.2f}M")
     logger.info("***** Training *****")
 
-    global_steps = 0
-    progress = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
+    # -------------------------------------------------------------- checkpoint / resume -------------------------------------------------------------------
+    checkpointing_steps = getattr(args, "checkpointing_steps", 1000)
+    resume_path = getattr(args, "resume_from_checkpoint", None)
 
-    for epoch in range(args.num_train_epochs):
+    starting_epoch = 0
+    global_steps = 0
+
+    if resume_path is not None and os.path.exists(resume_path):
+        prior, last_epoch, last_global_step = load_training_checkpoint(
+            prior,
+            resume_path,
+            **{"load_optimizer_states": True, "load_lr_scheduler_states": True},
+        )
+        accelerator.print(f"Resumed from checkpoint: {resume_path}, global step: {last_global_step}")
+        starting_epoch = last_epoch
+        global_steps = last_global_step
+
+    # Progress bar
+    progress_bar = tqdm(
+        range(global_steps, args.max_train_steps),
+        initial=global_steps,
+        desc="Steps",
+        disable=not accelerator.is_local_main_process,
+    )
+
+    # -------------------------------------------------------------- training loop -------------------------------------------------------------------------
+    for epoch in range(starting_epoch, args.num_train_epochs):
         prior.train()
-        for batch in loader:
+        for step, batch in enumerate(loader):
             with torch.no_grad():
-                cloth = image_encoder(batch["clip_cloth_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)   # (bs,E)
-                agn   = image_encoder(batch["clip_agnostic_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)  # (bs,1,E)
-                img   = image_encoder(batch["clip_image_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)   # (bs,E)
-                tgt   = image_encoder(batch["clip_warp_mask_img"].to(accelerator.device, dtype=dtype)).image_embeds   # (bs,E) target image
+                cloth = image_encoder(batch["clip_cloth_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)
+                agn   = image_encoder(batch["clip_agnostic_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)
+                img   = image_encoder(batch["clip_image_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)
+                tgt   = image_encoder(batch["clip_warp_mask_img"].to(accelerator.device, dtype=dtype)).image_embeds
 
             with accelerator.accumulate(prior):
                 pred = prior(proj_embedding=cloth, encoder_hidden_states=agn, encoder_hidden_states1=img).predicted_image_embedding
-                loss = F.mse_loss(pred.float(), tgt.float(), reduction="mean")  # target is clip_warp_mask_img
+                loss = F.mse_loss(pred.float(), tgt.float(), reduction="mean")
+
                 accelerator.backward(loss)
                 optimizer.step(); lr_scheduler.step(); optimizer.zero_grad()
 
+            # Only the main process should log & update step counters once per real optimizer step
             if accelerator.sync_gradients:
-                progress.update(1); global_steps += 1
+                progress_bar.update(1)
+                global_steps += 1
                 accelerator.log({"train_loss": loss.item()}, step=global_steps)
+
+                # --------------- checkpointing ---------------
+                if global_steps % checkpointing_steps == 0:
+                    checkpoint_model(args.output_dir, global_steps, prior, epoch, global_steps)
+
                 if global_steps >= args.max_train_steps:
                     break
         if global_steps >= args.max_train_steps:
             break
 
+    # -------------------------------------------------------------- final save ---------------------------------------------------------------------------
     accelerator.wait_for_everyone()
     if accelerator.is_main_process:
-        prior.save_pretrained(os.path.join(args.output_dir, "prior_pure"))
+        # prior_final = accelerator.unwrap_model(prior)
+        checkpoint_model(args.output_dir, global_steps, prior, epoch, global_steps)
     accelerator.end_training()
-
 
 
 if __name__ == "__main__":

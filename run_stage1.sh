@@ -1,12 +1,12 @@
-accelerate launch --num_machines 1 --mixed_precision no --dynamo_backend no --gpu_ids 0 --use_deepspeed --num_processes 1   \
+accelerate launch --num_machines 1 --mixed_precision no --dynamo_backend no --gpu_ids 0,1 --use_deepspeed --num_processes 2   \
   stage1_train_prior_model.py \
   --pretrained_model_name_or_path="kandinsky-community/kandinsky-2-2-prior" \
   --image_encoder_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
-  --img_path="./data/test" \
+  --img_path="/opt/data/private/data/train" \
   --output_dir="output_dir" \
   --img_height=512  \
   --img_width=512   \
-  --train_batch_size=1 \
+  --train_batch_size=1024 \
   --gradient_accumulation_steps=1 \
   --max_train_steps=100000 \
   --noise_offset=0.1 \

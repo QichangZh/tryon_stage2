@@ -6,3 +6,9 @@
 *.pth
 *.ckpt
 /logs/
+/checkpoints/
+/results/
+/wandb/
+/logs/
+/cache/
+/checkpoints/
