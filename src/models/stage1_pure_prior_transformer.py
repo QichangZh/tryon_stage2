@@ -40,6 +40,7 @@ class Stage1_PriorTransformerPure(ModelMixin, ConfigMixin):
         num_layers: int = 20,
         embedding_dim: int = 768,
         dropout: float = 0.1,
+        expected_cond_tokens: int = 2,
     ):
         super().__init__()
         inner_dim = num_attention_heads * attention_head_dim
@@ -70,15 +71,24 @@ class Stage1_PriorTransformerPure(ModelMixin, ConfigMixin):
 
         self.norm_out = nn.LayerNorm(inner_dim)
         self.proj_to_clip_embeddings = nn.Linear(inner_dim, embedding_dim)
-        # 构建自回归的因果遮罩，长度为 4（agnostic、image、cloth、prd）
-        causal_attention_mask = torch.full((4, 4), -10000.0)
-        causal_attention_mask.triu_(1)
-        causal_attention_mask = causal_attention_mask[None, ...]
+        # the causal mask length is derived from the expected number of input
+        # tokens rather than hard coded. "cond" tokens correspond to inputs like
+        # the agnostic and cloth embeddings. Two additional tokens are added for
+        # the projected cloth image and the learnable prediction token.
+        self.expected_cond_tokens = expected_cond_tokens
+        total_tokens = expected_cond_tokens + 2
+        causal_attention_mask = self._build_causal_mask(total_tokens)
         self.register_buffer("causal_attention_mask", causal_attention_mask, persistent=False)
 
 
         self.clip_mean = torch.tensor(-0.016)
         self.clip_std = torch.tensor(0.415)
+
+    def _build_causal_mask(self, length: int) -> torch.Tensor:
+        """Create a causal mask of shape (1, length, length)."""
+        mask = torch.full((length, length), -10000.0)
+        mask.triu_(1)
+        return mask[None, ...]
 
 
     # ---------------------------------------------------------------------
@@ -142,9 +152,14 @@ class Stage1_PriorTransformerPure(ModelMixin, ConfigMixin):
         )
         hidden_states = hidden_states + pe.to(hidden_states.dtype)
 
-        # 计算注意力遮罩并加入因果限制
+        # Build causal mask on-the-fly if the sequence grows beyond the
+        # precomputed size. This allows variable number of conditional tokens.
         seq_len = hidden_states.size(1)
-        causal_mask = self.causal_attention_mask[:, :seq_len, :seq_len]
+        if seq_len > self.causal_attention_mask.shape[-1]:
+            causal_mask = self._build_causal_mask(seq_len).to(hidden_states.device)
+            self.causal_attention_mask = causal_mask
+        else:
+            causal_mask = self.causal_attention_mask[:, :seq_len, :seq_len]
 
         if attention_mask is not None:
             attention_mask = (1 - attention_mask.to(hidden_states.dtype)) * -10000.0
