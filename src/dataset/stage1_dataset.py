@@ -17,13 +17,20 @@ def PriorCollate_fn(batch):
     clip_cloth_imgs = torch.stack([item["clip_cloth_img"] for item in batch])
     clip_warp_mask_imgs = torch.stack([item["clip_warp_mask_img"] for item in batch])
     clip_image_imgs = torch.stack([item["clip_image_img"] for item in batch])
+
+    agn_dropped = torch.tensor([item["agnostic_dropped"] for item in batch], dtype=torch.bool)
+    cloth_dropped = torch.tensor([item["cloth_dropped"] for item in batch], dtype=torch.bool)
+    img_dropped = torch.tensor([item["image_dropped"] for item in batch], dtype=torch.bool)
     
     return {
-            "clip_agnostic_img": clip_agnostic_imgs,
-            "clip_cloth_img": clip_cloth_imgs,
-            "clip_warp_mask_img": clip_warp_mask_imgs,
-            "clip_image_img": clip_image_imgs,
-        }
+        "clip_agnostic_img": clip_agnostic_imgs,
+        "clip_cloth_img": clip_cloth_imgs,
+        "clip_warp_mask_img": clip_warp_mask_imgs,
+        "clip_image_img": clip_image_imgs,
+        "agnostic_dropped": agn_dropped,
+        "cloth_dropped": cloth_dropped,
+        "image_dropped": img_dropped,
+    }
 
 
 class PriorImageDataset(Dataset):
@@ -115,20 +122,30 @@ class PriorImageDataset(Dataset):
         # 6. 随机丢弃
         #    根据你的需求，这里保留最初的逻辑
         # ---------------------------
+        agn_dropped = False
+        cloth_dropped = False
+        img_dropped = False
+
         if random.random() < self.s_img_drop_rate:
             clip_agnostic_img = torch.zeros_like(clip_agnostic_img)
+            agn_dropped = True
         if random.random() < self.s_pose_drop_rate:
             clip_cloth_img = torch.zeros_like(clip_cloth_img)
+            cloth_dropped = True
         if random.random() < self.t_img_drop_rate:
             clip_warp_mask_img = torch.zeros_like(clip_warp_mask_img)
         if random.random() < self.t_pose_drop_rate:
             clip_image_img = torch.zeros_like(clip_image_img)
+            img_dropped = True
 
         return {
             "clip_agnostic_img": clip_agnostic_img,
             "clip_cloth_img": clip_cloth_img,
             "clip_warp_mask_img": clip_warp_mask_img,
             "clip_image_img": clip_image_img,
+            "agnostic_dropped": agn_dropped,
+            "cloth_dropped": cloth_dropped,
+            "image_dropped": img_dropped,
         }
 
         # 
