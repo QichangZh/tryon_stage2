@@ -70,6 +70,12 @@ class Stage1_PriorTransformerPure(ModelMixin, ConfigMixin):
 
         self.norm_out = nn.LayerNorm(inner_dim)
         self.proj_to_clip_embeddings = nn.Linear(inner_dim, embedding_dim)
+        # 构建自回归的因果遮罩，长度为 4（agnostic、image、cloth、prd）
+        causal_attention_mask = torch.full((4, 4), -10000.0)
+        causal_attention_mask.triu_(1)
+        causal_attention_mask = causal_attention_mask[None, ...]
+        self.register_buffer("causal_attention_mask", causal_attention_mask, persistent=False)
+
 
         self.clip_mean = torch.tensor(-0.016)
         self.clip_std = torch.tensor(0.415)
@@ -136,12 +142,19 @@ class Stage1_PriorTransformerPure(ModelMixin, ConfigMixin):
         )
         hidden_states = hidden_states + pe.to(hidden_states.dtype)
 
-        # optional mask
+        # 计算注意力遮罩并加入因果限制
+        seq_len = hidden_states.size(1)
+        causal_mask = self.causal_attention_mask[:, :seq_len, :seq_len]
+
         if attention_mask is not None:
             attention_mask = (1 - attention_mask.to(hidden_states.dtype)) * -10000.0
-            attention_mask = attention_mask[:, None, None, :]
+            attention_mask = F.pad(attention_mask, (0, seq_len - attention_mask.shape[-1]), value=0.0)
+            attention_mask = (attention_mask[:, None, :] + causal_mask).to(hidden_states.dtype)
         else:
-            attention_mask = None
+            attention_mask = causal_mask.to(hidden_states.dtype)
+
+        attention_mask = attention_mask.repeat_interleave(self.config.num_attention_heads, dim=0)
+
 
         for blk in self.transformer_blocks:
             hidden_states = blk(hidden_states, attention_mask=attention_mask)

@@ -220,8 +220,9 @@ def main():
                 img   = image_encoder(batch["clip_image_img"].to(accelerator.device, dtype=dtype)).image_embeds.unsqueeze(1)
                 tgt   = image_encoder(batch["clip_warp_mask_img"].to(accelerator.device, dtype=dtype)).image_embeds
 
+            attn_mask = torch.ones((cloth.shape[0], 4), dtype=torch.bool, device=cloth.device)
             with accelerator.accumulate(prior):
-                pred = prior(proj_embedding=cloth, encoder_hidden_states=agn, encoder_hidden_states1=img).predicted_image_embedding
+                pred = prior(proj_embedding=cloth, encoder_hidden_states=agn, encoder_hidden_states1=img, attention_mask=attn_mask).predicted_image_embedding
                 loss = F.mse_loss(pred.float(), tgt.float(), reduction="mean")
 
                 accelerator.backward(loss)

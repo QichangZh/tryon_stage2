@@ -1,4 +1,15 @@
-accelerate launch --num_machines 1 --mixed_precision no --dynamo_backend no --gpu_ids 0,1 --use_deepspeed --num_processes 2   \
+export HF_HOME=/opt/data/private/cache
+export HUGGINGFACE_HUB_CACHE=/opt/data/private/cache/hub
+export TORCH_HOME=/opt/data/private/cache/torch
+export HF_ENDPOINT=https://hf-mirror.com
+export HF_HUB_ENDPOINT=https://hf-mirror.com
+export HF_TOKEN=
+export HF_HUB_TOKEN=
+export HUGGINGFACE_HUB_TOKEN=
+export TORCHELASTIC_TIMEOUT=1800
+export NCCL_TIME=1800
+
+accelerate launch --num_machines 1 --mixed_precision no --dynamo_backend no --gpu_ids 0,1,2,3 --use_deepspeed --num_processes 4   \
   stage1_train_prior_model.py \
   --pretrained_model_name_or_path="kandinsky-community/kandinsky-2-2-prior" \
   --image_encoder_path="laion/CLIP-ViT-H-14-laion2B-s32B-b79K" \
